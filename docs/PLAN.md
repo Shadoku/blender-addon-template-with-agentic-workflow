@@ -1,8 +1,9 @@
 # Plan: Blender add-on template with an agentic workflow
 
-Status: **draft for review**, 2026-10-26. Nothing below is implemented yet.
-Once agreed, each phase runs as its own plan -> tests -> implement -> check cycle
-and this file is trimmed into `CLAUDE.md` + `docs/` reference pages.
+Status: **implemented**, 2026-10-26. Decisions taken: Blender floor 4.5 LTS,
+package under `src/`, pytest inside Blender, legacy `bl_info` dropped, scaffolder
+and hosted skill included. Kept as the design record; the living documentation
+is `CLAUDE.md`, `docs/testing.md` and `docs/pitfalls.md`.
 
 ## 1. Goal
 

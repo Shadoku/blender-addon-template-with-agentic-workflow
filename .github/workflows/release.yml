@@ -1,0 +1,38 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` (matching the manifest version) to build the zip and attach it to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Blender
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/blender
+          key: blender-${{ runner.os }}-${{ hashFiles('.blender-version') }}
+
+      - name: Install Blender
+        run: bash tools/install_blender.sh
+
+      - name: Run checks and keep the built zip
+        run: python3 tools/check.py --keep-dist
+
+      - name: Check tag matches manifest version
+        run: |
+          version=$(python3 -c "import tomllib,glob; print(tomllib.load(open(glob.glob('src/*/blender_manifest.toml')[0],'rb'))['version'])")
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != manifest version v$version"; exit 1; }
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported LTS (manifest blender_version_min) and the pinned version in .blender-version.
+        blender: ["4.5.15", "5.2.3"]
+    env:
+      BLENDER_VERSION: ${{ matrix.blender }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Blender
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/blender
+          key: blender-${{ runner.os }}-${{ matrix.blender }}
+
+      - name: Install Blender
+        run: bash tools/install_blender.sh
+
+      - name: Run checks (lint, unit, blender, package)
+        run: BLENDER="$HOME/.cache/blender/$BLENDER_VERSION/blender" python3 tools/check.py --junit junit --keep-dist
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.blender }}
+          path: junit-*.xml
+          if-no-files-found: ignore
+
+      - name: Upload built extension
+        if: matrix.blender == '5.2.3'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: dist/*.zip

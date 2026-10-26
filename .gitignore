@@ -1,0 +1,16 @@
+# Dev dependencies installed by tools/check.py with Blender's bundled pip
+.blender-deps/
+# Built extension zips (tools/check.py --keep-dist, release workflow)
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+junit*.xml
+# Blender
+*.blend1
+*.blend@
+# Editors
+.vscode/
+.idea/
+.DS_Store

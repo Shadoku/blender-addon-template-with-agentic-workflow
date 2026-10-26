@@ -1,0 +1,4 @@
+# Installed into .blender-deps/ with Blender's bundled pip by tools/check.py.
+# Pure-Python only: this directory is shared by Blender's Python (3.11 on 4.5, 3.13 on 5.2).
+pytest==8.4.2
+ruff==0.14.0

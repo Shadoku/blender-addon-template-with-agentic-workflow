@@ -1,0 +1,26 @@
+# Tooling configuration only. The add-on itself is described by src/<id>/blender_manifest.toml.
+
+[tool.ruff]
+line-length = 110
+# Blender 4.5 LTS bundles Python 3.11; stay compatible with it even when developing on 5.x.
+target-version = "py311"
+extend-exclude = ["tests/lint_fixtures", ".blender-deps", "dist", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF"]
+ignore = [
+  "E501",   # long lines: ruff format handles wrapping; bl_description strings are often long
+  "B008",   # bpy.props.*Property() calls in annotations are the required Blender idiom
+  "RUF012", # mutable class attributes (bl_options sets) are how Blender classes are declared
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tools/blender_bootstrap.py" = ["RUF100"]
+
+[tool.ruff.lint.isort]
+known-first-party = []
+
+[tool.pytest.ini_options]
+# tests/unit runs under plain Python; tests/blender only inside Blender (see tools/check.py).
+testpaths = ["tests/unit"]
+addopts = "-p no:cacheprovider"
