@@ -351,3 +351,70 @@ What the implementation does differently, and why:
 - Smaller items: `output_dir` declares `PATH_SUPPORTS_BLEND_RELATIVE` (else
   assigning `//guides/` warns); under the Standard view transform the look is
   set as `"None"` although `enum_items` lists `NONE`.
+
+## 8. Sharp-edge outlines (0.3.0)
+
+Request: inner outlines on sharp edges and marked edge loops, not only on
+object and material boundaries.
+
+### Verified facts (Blender 5.2.3, this session)
+
+- Workbench with `shading.color_type = "VERTEX"` renders a colour attribute
+  that Geometry Nodes stores on the rig's output mesh (Store Named Attribute,
+  domain CORNER, type FLOAT_COLOR). It is picked up without setting an active
+  colour attribute on the empty rig mesh (`color_attributes.active_color_name`
+  stays empty and the render still uses it).
+- With `view_settings.view_transform = "Raw"` the stored linear value
+  `byte / 255` comes back as exactly `byte` in the PNG. The only noise seen
+  was +-1 dithering; `render.dither_intensity = 0` (the guard already forces
+  it) removes it.
+- Node chain that worked: Realize -> Split Edges (selection = Edge Angle
+  (unsigned) > crease angle OR named attribute `sharp_edge`) -> Mesh Island ->
+  island index encoded as colour -> Store Named Attribute. A cube split into 6
+  islands; a 24-segment cylinder (15 degree side edges) kept its side as one
+  island at a 30 degree crease angle.
+- The function node is `FunctionNodeCombineColor` (not `ShaderNodeCombineColor`)
+  in a Geometry Nodes tree. Edge angles must be measured BEFORE the shear
+  transform (the shear changes angles).
+
+### Design
+
+- `core/edge_ids.py` (stdlib): `island_color(index) -> (r, g, b)` bytes with
+  `r = (i % 32) * 8 + 4`, `g = (i // 32 % 32) * 8 + 4`, `b = (i // 1024 % 32) * 8 + 4`
+  (32768 ids, 8 levels apart so +-1 noise can never merge two ids);
+  `island_index(rgb) -> int`; `linear_value(byte) -> float` (`byte / 255`, the
+  value to store under Raw).
+- Node group: new inputs `Edge IDs` (bool, default False), `Crease Angle`
+  (float radians, default radians(30)), `Marked Sharp` (bool, default True),
+  appended after `Auto Seat`. A Switch on `Edge IDs` chooses, between Seat and
+  Shear, either the seated geometry unchanged or Split Edges + island colour
+  stored as `oblique_edge_id`. The selection is
+  `(Unsigned Angle > Crease Angle) OR (sharp_edge AND Marked Sharp)`; the
+  colour is built with Math nodes (Divide, Floor, Modulo, Multiply Add) and
+  `FunctionNodeCombineColor`, matching `core.edge_ids.island_color` exactly.
+- Settings: `inner_lines` gains `EDGES` ("Sharp edges: object boundaries,
+  edges sharper than Crease Angle, and edges marked sharp"); new `crease_angle`
+  (Float, subtype ANGLE, default radians(30), min 0, max pi) and
+  `edge_marked_sharp` (Bool, default True), shown only when `inner_lines ==
+  "EDGES"`.
+- Render: new pass kind `EDGES`: Workbench, FLAT light, `color_type = "VERTEX"`,
+  AA OFF, view transform `Raw`, modifier inputs `Edge IDs = True`, `Crease
+  Angle`, `Marked Sharp` set for the pass and restored by the guard. The image
+  is rendered to a temporary file in the output folder, read with `read_rgba`,
+  removed, and fed through `merge_near_colors` + `label_image` + `inner_lines`;
+  the result is OR-ed with the outer outline as today. `RigParams` gains
+  `crease_angle` and `edge_marked_sharp` so `rig.build` sets the new inputs
+  (with `Edge IDs` left False).
+- Tests: unit round trip for `edge_ids`; evaluated-geometry tests (no render)
+  that with `Edge IDs` on the evaluated rig mesh carries `oblique_edge_id`
+  with 6 distinct colours for one cube, 2 for a 2x1 plane whose middle edge is
+  marked sharp (`sharp_edge` attribute) and 1 when `Marked Sharp` is off, and
+  that a 24-segment cylinder yields 3 islands at 30 degrees and 26 at 10
+  degrees; a render test that with `inner_lines = "EDGES"` the outline pass
+  contains the front cube's front/top crease (a horizontal run of outline
+  pixels at the row of z = 1 inside the cube's screen rect) and that
+  `OBJECTS` mode does not contain it.
+- Docs: README outline section (three inner-line modes, crease angle, marked
+  sharp), pitfalls (Workbench VERTEX mode and Raw transform for exact
+  attribute read-back; `FunctionNodeCombineColor`), CLAUDE.md layout line,
+  manifest version 0.3.0.
