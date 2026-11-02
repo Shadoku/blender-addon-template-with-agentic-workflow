@@ -354,6 +354,9 @@ What the implementation does differently, and why:
 
 ## 8. Sharp-edge outlines (0.3.0)
 
+Status: implemented, 2026-11-02 (version 0.3.0; `check.py` passes on 4.5.3
+and 5.2.3; deviations at the end of this section).
+
 Request: inner outlines on sharp edges and marked edge loops, not only on
 object and material boundaries.
 
@@ -418,3 +421,42 @@ object and material boundaries.
   sharp), pitfalls (Workbench VERTEX mode and Raw transform for exact
   attribute read-back; `FunctionNodeCombineColor`), CLAUDE.md layout line,
   manifest version 0.3.0.
+
+### Deviations (as implemented)
+
+- **Blender 4.5 needs the island attribute to be the active colour
+  attribute.** The probe above ran on 5.2 only. On 4.5 Workbench VERTEX
+  renders black unless the evaluated mesh's `active_color_name` names the
+  attribute, Geometry Nodes cannot set it, and only Realize Instances copies
+  it, from the first non-empty mesh realized. The same rule lets a source
+  mesh's own active `Col` hijack the render on 5.2. So the Edge IDs branch is
+  longer than designed: Split Edges -> Store -> Geometry to Instance [rig's
+  own mesh first, stored geometry] -> Realize -> Delete loose vertices; and
+  `rig.ensure_edge_id_helper` gives the rig's mesh one loose vertex with an
+  active corner FLOAT_COLOR `oblique_edge_id` (rebuilt on every Build, so
+  0.2 rigs are upgraded). Details in `docs/pitfalls.md`, section 16.
+- **Loose vertices are dropped in the Edge IDs output** (that is how the
+  helper vertex goes away). Workbench never draws loose vertices, so the
+  render is unchanged; the normal (Edge IDs off) output is untouched.
+- **No Compare node.** Thresholds use `ShaderNodeMath` (`GREATER_THAN` for
+  the crease angle, `LESS_THAN 0.5` for "no faces") because Compare's sockets
+  differ between 4.5 and 5.x.
+- **Guard generalised.** `RenderSettingsGuard` saves and restores the four
+  modifier inputs Direction, Edge IDs, Crease Angle and Marked Sharp
+  (`render.GUARDED_INPUTS`) instead of Direction only; `render.get_rig_input`
+  / `set_rig_input` back the existing `get_direction` / `set_direction`.
+- **Temporary file name.** The edge-id render goes to `<name>_edges.png` in the
+  output folder and is deleted right after `read_rgba` (in a `finally`), like
+  the other helper renders; there is no `pass_edges` setting.
+- **`render_pass` signature.** EDGES takes optional `crease_angle` and
+  `marked_sharp` keyword arguments (None keeps the rig's current inputs);
+  `render_guides` passes `params.crease_angle` / `params.edge_marked_sharp`,
+  so the pass follows the panel even if the rig was not rebuilt.
+- **Island ids wrap after 32768** (per-channel modulo, as specified);
+  `core.edge_ids.island_index` decodes colours up to 3 steps off.
+- **Tests added beyond the plan:** two objects are two islands even with
+  nothing sharp (crease 180 degrees); a source mesh with an active `Col` does
+  not change the active name; angles are measured before the shear (a
+  64 px/unit shear, crease 89 vs 91 degrees); the helper mesh after Build;
+  the guard restores the edge inputs without rendering. The render suite
+  grows from five to seven renders.

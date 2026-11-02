@@ -11,6 +11,8 @@ working in Blender 5.0.
 it with :func:`params_from_settings` into the plain ``core.oblique.RigParams``.
 """
 
+import math
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -40,6 +42,11 @@ INNER_LINES_ITEMS = (
     ("NONE", "None", "No lines inside the silhouette"),
     ("OBJECTS", "Objects", "Lines where one object meets another (from the object ID pass)"),
     ("MATERIALS", "Materials", "Lines where one flat material colour meets another (from the flat pass)"),
+    (
+        "EDGES",
+        "Sharp Edges",
+        "Sharp edges: object boundaries, edges sharper than Crease Angle, and edges marked sharp",
+    ),
 )
 
 # Attribute name on bpy.types.Scene. Keep it equal to the add-on id so it is unique.
@@ -275,6 +282,22 @@ class OBLIQUE_RIG_Settings(PropertyGroup):
         min=0.0,
         max=1.0,
     )
+    crease_angle: FloatProperty(
+        name="Crease Angle",
+        description=(
+            "Sharp-edge inner lines: edges whose faces meet at more than this angle get a line "
+            "(measured on the unsheared source)"
+        ),
+        default=math.radians(30),
+        min=0.0,
+        max=math.pi,
+        subtype="ANGLE",
+    )
+    edge_marked_sharp: BoolProperty(
+        name="Marked Sharp",
+        description="Sharp-edge inner lines: also draw edges marked sharp in Edit Mode (Edge > Mark Sharp)",
+        default=True,
+    )
     # ------------------------------------------------------------------ viewport and readouts
     view_mode: EnumProperty(
         name="View",
@@ -319,6 +342,8 @@ def params_from_settings(settings: OBLIQUE_RIG_Settings) -> RigParams:
         direction=settings.direction,
         auto_seat=settings.auto_seat,
         view_mode=settings.view_mode,
+        crease_angle=settings.crease_angle,
+        edge_marked_sharp=settings.edge_marked_sharp,
     )
 
 

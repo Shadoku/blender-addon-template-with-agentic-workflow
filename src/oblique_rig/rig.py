@@ -13,6 +13,13 @@ API differences between Blender 4.5 LTS and 5.x handled here:
   and a menu input socket (``inputs["Mode"]``) in 5.0+.
 - Geometry Nodes modifier inputs are ID properties (``mod["Socket_1"]``) in 4.5;
   5.2 refuses that and exposes ``mod.properties.inputs.Socket_1.value``.
+- Workbench's VERTEX colour mode on 4.5 renders only the evaluated mesh's
+  *active* colour attribute (5.2 falls back to the only one). Geometry Nodes
+  cannot set that name; Realize Instances copies it from the first non-empty
+  mesh it realizes. So the rig's own mesh holds one loose helper vertex with
+  an active ``core.edge_ids.EDGE_ID_ATTRIBUTE``, and the Edge IDs branch puts
+  it first before realizing (see ``build_shear_nodegroup`` and
+  ``ensure_edge_id_helper``).
 
 ``build`` takes a ``core.oblique.RigParams`` (see ``properties.params_from_settings``)
 and never reads the PropertyGroup itself, so the render code can rebuild or
@@ -26,7 +33,7 @@ from typing import Any
 import bpy
 from mathutils import Vector
 
-from .core import oblique, primitives
+from .core import edge_ids, oblique, primitives
 from .core.oblique import (
     CALIB_BACK,
     CALIB_FLOOR,
@@ -164,8 +171,16 @@ def build_shear_nodegroup(name: str = NODEGROUP_NAME) -> bpy.types.NodeTree:
     geometry's bounding box: front edge on y = 0, centred on x = 0. The source
     is realized first because Bounding Box ignores instances. The final
     Realize keeps the rig's evaluated mesh real geometry for tests and exporters.
+
+    Between Seat and Shear the switch "Edge IDs" (off by default; only the
+    EDGES render pass turns it on) can replace the seated geometry with a copy
+    split along sharp edges, whose mesh islands are stored as colours in the
+    corner attribute ``core.edge_ids.EDGE_ID_ATTRIBUTE`` (see
+    :func:`_add_edge_id_branch`). Edge angles are measured there, before the
+    shear changes them.
+
     Input order: Geometry, Source Collection, Slope Run, Slope Rise, Depth Scale,
-    Direction, Auto Seat.
+    Direction, Auto Seat, Edge IDs, Crease Angle, Marked Sharp.
     """
     ng = bpy.data.node_groups.get(name)
     if ng is None:
@@ -182,6 +197,9 @@ def build_shear_nodegroup(name: str = NODEGROUP_NAME) -> bpy.types.NodeTree:
     s_depth = iface.new_socket("Depth Scale", in_out="INPUT", socket_type="NodeSocketFloat")
     s_dir = iface.new_socket("Direction", in_out="INPUT", socket_type="NodeSocketFloat")
     s_seat = iface.new_socket("Auto Seat", in_out="INPUT", socket_type="NodeSocketBool")
+    s_edges = iface.new_socket("Edge IDs", in_out="INPUT", socket_type="NodeSocketBool")
+    s_crease = iface.new_socket("Crease Angle", in_out="INPUT", socket_type="NodeSocketFloat")
+    s_marked = iface.new_socket("Marked Sharp", in_out="INPUT", socket_type="NodeSocketBool")
     iface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     s_run.default_value = 2.0
     s_rise.default_value = 1.0
@@ -192,6 +210,12 @@ def build_shear_nodegroup(name: str = NODEGROUP_NAME) -> bpy.types.NodeTree:
     s_dir.subtype = "ANGLE"
     s_dir.default_value = 0.0
     s_seat.default_value = True
+    s_edges.default_value = False
+    s_crease.subtype = "ANGLE"
+    s_crease.default_value = math.radians(30)
+    s_crease.min_value = 0.0
+    s_crease.max_value = math.pi
+    s_marked.default_value = True
 
     nodes, links = ng.nodes, ng.links
 
@@ -283,11 +307,143 @@ def build_shear_nodegroup(name: str = NODEGROUP_NAME) -> bpy.types.NodeTree:
     links.new(n_sep.outputs["X"], n_mat.inputs[1 * 4 + 0])
     links.new(n_sep.outputs["Y"], n_mat.inputs[1 * 4 + 2])
 
-    links.new(n_seat.outputs["Geometry"], n_xform.inputs["Geometry"])
+    n_edge_switch = add("GeometryNodeSwitch", 650, 200, "Edge IDs")
+    n_edge_switch.input_type = "GEOMETRY"
+    links.new(n_in.outputs["Edge IDs"], n_edge_switch.inputs["Switch"])
+    links.new(n_seat.outputs["Geometry"], n_edge_switch.inputs["False"])
+    edge_ids_out = _add_edge_id_branch(ng, n_in, n_seat.outputs["Geometry"], add)
+    links.new(edge_ids_out, n_edge_switch.inputs["True"])
+
+    links.new(n_edge_switch.outputs[0], n_xform.inputs["Geometry"])
     links.new(n_mat.outputs["Matrix"], n_xform.inputs["Transform"])
     links.new(n_xform.outputs["Geometry"], n_realize.inputs["Geometry"])
     links.new(n_realize.outputs["Geometry"], n_out.inputs["Geometry"])
     return ng
+
+
+def _add_edge_id_branch(ng: bpy.types.NodeTree, n_in: bpy.types.Node, seated, add) -> bpy.types.NodeSocket:
+    """Nodes that split ``seated`` along sharp edges and colour each island; return the output socket.
+
+    Split Edges (selection: ``Unsigned Angle > Crease Angle`` OR
+    (``sharp_edge`` AND Marked Sharp)) -> Store Named Attribute (corner,
+    FLOAT_COLOR, the island colour from Mesh Island) -> Geometry to Instance
+    [rig's own mesh first, then the stored geometry] -> Realize Instances ->
+    Delete Geometry (loose vertices). The colour is
+    ``core.edge_ids.island_color(index)`` as linear ``byte / 255`` values,
+    built from Math nodes: per channel ``floor(index / div) % 32 * 8/255 +
+    4/255``.
+
+    The detour through Geometry to Instance and Realize exists for Blender
+    4.5: its Workbench VERTEX mode only shows the evaluated mesh's *active*
+    colour attribute, and Realize copies that name from the first non-empty
+    mesh, which is the rig's helper vertex (``ensure_edge_id_helper``). It
+    also keeps a source mesh's own active colour attribute from winning on
+    5.x. The Delete removes the helper vertex again (and any other loose
+    vertex, which Workbench would not draw anyway).
+    """
+    links = ng.links
+    x, y = -150, 700
+
+    n_angle = add("GeometryNodeInputMeshEdgeAngle", x - 400, y + 200)
+    n_sharper = add("ShaderNodeMath", x - 200, y + 200, "Sharper Than Crease")
+    n_sharper.operation = "GREATER_THAN"
+    links.new(n_angle.outputs["Unsigned Angle"], n_sharper.inputs[0])
+    links.new(n_in.outputs["Crease Angle"], n_sharper.inputs[1])
+
+    n_marked = add("GeometryNodeInputNamedAttribute", x - 400, y + 400, "Marked Sharp Attribute")
+    n_marked.data_type = "BOOLEAN"
+    n_marked.inputs["Name"].default_value = edge_ids.SHARP_EDGE_ATTRIBUTE
+    n_use_marked = add("FunctionNodeBooleanMath", x - 200, y + 400, "Use Marked")
+    n_use_marked.operation = "AND"
+    links.new(n_marked.outputs["Attribute"], n_use_marked.inputs[0])
+    links.new(n_in.outputs["Marked Sharp"], n_use_marked.inputs[1])
+
+    n_select = add("FunctionNodeBooleanMath", x, y + 300, "Sharp Selection")
+    n_select.operation = "OR"
+    links.new(n_sharper.outputs[0], n_select.inputs[0])
+    links.new(n_use_marked.outputs[0], n_select.inputs[1])
+
+    n_split = add("GeometryNodeSplitEdges", x + 200, y, "Split Sharp Edges")
+    links.new(seated, n_split.inputs["Mesh"])
+    links.new(n_select.outputs[0], n_split.inputs["Selection"])
+
+    n_island = add("GeometryNodeInputMeshIsland", x, y - 300)
+    n_color = add("FunctionNodeCombineColor", x + 600, y - 300, "Island Color")
+    for channel, div in enumerate(edge_ids.CHANNEL_DIVISORS):
+        cy = y - 500 - channel * 200
+        n_div = add("ShaderNodeMath", x + 200, cy)
+        n_div.operation = "DIVIDE"
+        n_div.inputs[1].default_value = float(div)
+        n_floor = add("ShaderNodeMath", x + 300, cy)
+        n_floor.operation = "FLOOR"
+        n_mod = add("ShaderNodeMath", x + 400, cy)
+        n_mod.operation = "MODULO"
+        n_mod.inputs[1].default_value = float(edge_ids.LEVELS)
+        n_level = add("ShaderNodeMath", x + 500, cy)
+        n_level.operation = "MULTIPLY_ADD"
+        n_level.inputs[1].default_value = edge_ids.STEP / 255.0
+        n_level.inputs[2].default_value = edge_ids.OFFSET / 255.0
+        links.new(n_island.outputs["Island Index"], n_div.inputs[0])
+        links.new(n_div.outputs[0], n_floor.inputs[0])
+        links.new(n_floor.outputs[0], n_mod.inputs[0])
+        links.new(n_mod.outputs[0], n_level.inputs[0])
+        links.new(n_level.outputs[0], n_color.inputs[channel])
+    n_color.inputs["Alpha"].default_value = 1.0
+
+    n_store = add("GeometryNodeStoreNamedAttribute", x + 800, y, "Store Edge IDs")
+    n_store.data_type = "FLOAT_COLOR"
+    n_store.domain = "CORNER"
+    n_store.inputs["Name"].default_value = edge_ids.EDGE_ID_ATTRIBUTE
+    links.new(n_split.outputs["Mesh"], n_store.inputs["Geometry"])
+    links.new(n_color.outputs["Color"], n_store.inputs["Value"])
+
+    # Multi-input sockets list the newest link first: link the stored geometry, then the helper.
+    n_to_instance = add("GeometryNodeGeometryToInstance", x + 1000, y, "Helper First")
+    links.new(n_store.outputs["Geometry"], n_to_instance.inputs["Geometry"])
+    links.new(n_in.outputs["Geometry"], n_to_instance.inputs["Geometry"])
+    n_realize = add("GeometryNodeRealizeInstances", x + 1200, y, "Realize Edge IDs")
+    links.new(n_to_instance.outputs[0], n_realize.inputs["Geometry"])
+
+    n_faces = add("GeometryNodeInputMeshVertexNeighbors", x + 1000, y - 200)
+    n_loose = add("ShaderNodeMath", x + 1200, y - 200, "Loose Vertex")
+    n_loose.operation = "LESS_THAN"
+    n_loose.inputs[1].default_value = 0.5
+    links.new(n_faces.outputs["Face Count"], n_loose.inputs[0])
+    n_delete = add("GeometryNodeDeleteGeometry", x + 1400, y, "Delete Helper")
+    n_delete.domain = "POINT"
+    links.new(n_realize.outputs["Geometry"], n_delete.inputs["Geometry"])
+    links.new(n_loose.outputs[0], n_delete.inputs["Selection"])
+    return n_delete.outputs["Geometry"]
+
+
+def ensure_edge_id_helper(mesh: bpy.types.Mesh) -> None:
+    """Give the rig's own mesh one loose vertex with an active ``EDGE_ID_ATTRIBUTE`` colour attribute.
+
+    The node group never outputs this geometry; it only exists so Realize
+    Instances copies the active colour name onto the Edge IDs output (see
+    :func:`_add_edge_id_branch`). Rebuilt when anything else is found.
+    """
+    name = edge_ids.EDGE_ID_ATTRIBUTE
+    attr = mesh.color_attributes.get(name)
+    ok = (
+        len(mesh.vertices) == 1
+        and len(mesh.edges) == 0
+        and len(mesh.polygons) == 0
+        and [a.name for a in mesh.color_attributes] == [name]
+        and attr is not None
+        and (attr.domain, attr.data_type) == ("CORNER", "FLOAT_COLOR")
+    )
+    if not ok:
+        mesh.clear_geometry()
+        for other in list(mesh.color_attributes):
+            mesh.color_attributes.remove(other)
+        mesh.from_pydata([(0.0, 0.0, 0.0)], [], [])
+        mesh.color_attributes.new(name, "FLOAT_COLOR", "CORNER")
+        mesh.update()
+    if mesh.color_attributes.active_color_name != name:
+        mesh.color_attributes.active_color_name = name
+    if mesh.color_attributes.render_color_index != mesh.color_attributes.active_color_index:
+        mesh.color_attributes.render_color_index = mesh.color_attributes.active_color_index
 
 
 def build_rig_object(
@@ -302,6 +458,8 @@ def build_rig_object(
     user added stay.
     """
     rig, _ = _get_or_create_object(scene, RIG_NAME, lambda: bpy.data.meshes.new(RIG_NAME))
+    if isinstance(rig.data, bpy.types.Mesh):
+        ensure_edge_id_helper(rig.data)
     rig.location = (0.0, 0.0, 0.0)
     rig.rotation_euler = (0.0, 0.0, 0.0)
     rig.scale = (1.0, 1.0, 1.0)
@@ -323,6 +481,9 @@ def build_rig_object(
     set_modifier_input(mod, "Depth Scale", depth)
     set_modifier_input(mod, "Direction", params.direction)
     set_modifier_input(mod, "Auto Seat", params.auto_seat)
+    set_modifier_input(mod, "Edge IDs", False)  # only the EDGES render pass turns it on
+    set_modifier_input(mod, "Crease Angle", float(params.crease_angle))
+    set_modifier_input(mod, "Marked Sharp", bool(params.edge_marked_sharp))
     rig.update_tag()
     return rig
 

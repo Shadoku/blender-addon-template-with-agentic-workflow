@@ -176,6 +176,8 @@ def make_params(**overrides) -> "oblique.RigParams":
         "direction": 0.0,
         "auto_seat": True,
         "view_mode": "SHEARED",
+        "crease_angle": math.radians(30),
+        "edge_marked_sharp": True,
     }
     values.update(overrides)
     return oblique.RigParams(**values)
@@ -183,6 +185,13 @@ def make_params(**overrides) -> "oblique.RigParams":
 
 def test_rig_params_defaults_match_the_settings_defaults() -> None:
     assert oblique.RigParams() == make_params()
+
+
+def test_rig_params_edge_defaults() -> None:
+    """0.3 fields are defaulted, so constructors written for 0.2 keep working."""
+    params = oblique.RigParams(pixels_per_unit=8)
+    assert params.crease_angle == pytest.approx(math.radians(30))
+    assert params.edge_marked_sharp is True
 
 
 def test_rig_params_is_frozen() -> None:

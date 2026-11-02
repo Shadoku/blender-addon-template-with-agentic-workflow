@@ -251,11 +251,60 @@ Probed on the 4.5.3 and 5.2.3 binaries in `~/.cache/blender/`.
   with `bpy.path.abspath` and refuse a still-relative result in an unsaved
   file.
 
-The two other version differences the rig hits are already handled by shims
-in `rig.py`: Geometry Nodes modifier inputs (`mod[identifier]` on 4.5,
+Found while building the 0.3 sharp-edge outlines (probed on both binaries):
+
+- **Workbench VERTEX colour renders Geometry Nodes colour attributes, but on
+  4.5 only the *active* one.** With `shading.color_type = "VERTEX"`, 5.2
+  renders a colour attribute that Store Named Attribute put on the evaluated
+  mesh even when no colour attribute is active. 4.5 renders black unless the
+  evaluated mesh's `color_attributes.active_color_name` names it. Geometry
+  Nodes has no node that sets that name, and it is not taken from the
+  modifier object's own mesh: setting it on the rig's (empty) mesh, or Join
+  Geometry with the Group Input, leaves it empty. Only Realize Instances
+  copies it, from the **first non-empty** mesh it realizes (empty meshes are
+  skipped). The same rule bites on 5.2 too: a source mesh with its own active
+  colour attribute (a painted `Col`) becomes the active one after the source
+  is realized, and VERTEX mode would render that instead of the ids.
+  Fix (`rig.ensure_edge_id_helper` and `rig._add_edge_id_branch`): the rig's
+  own mesh holds one loose vertex with an active corner FLOAT_COLOR attribute
+  of the stored name; the Edge IDs branch feeds [Group Input geometry, stored
+  geometry] into Geometry to Instance, realizes, and deletes loose vertices
+  (Vertex Neighbors face count < 0.5). `test_edge_ids.py` asserts the active
+  name, so a regression fails without rendering.
+- **Multi-input sockets list the newest link first.** Linking A then B into
+  Geometry to Instance (or Join Geometry) yields the order B, A. Link the one
+  that must come first last.
+- **Raw view transform for exact attribute read-back.** A stored linear
+  value `byte / 255` comes back as exactly `byte` under
+  `view_settings.view_transform = "Raw"` (the look is then `"None"`, as
+  under Standard). Standard would apply the sRGB curve. The only noise left is
+  dithering (+-1 per channel); `render.dither_intensity = 0` removes it, and
+  `render_pass` forces it. `core.edge_ids` still spaces ids 8 steps apart so
+  any leftover +-1 cannot merge two of them.
+- **`FunctionNodeCombineColor`, not `ShaderNodeCombineColor`,** in a Geometry
+  Nodes tree (the shader one is not available there). Same pattern as
+  `ShaderNodeMath`, which *is* shared.
+- **Compare node sockets differ.** On 4.5 `FunctionNodeCompare.inputs` lists
+  every type variant (`A`, `B` for float, then int, vector, ...; the int pair
+  is index 2-3); on 5.x it lists only the sockets of the current
+  `data_type`, so index-based access breaks one version or the other. The
+  rig uses `ShaderNodeMath` `GREATER_THAN` / `LESS_THAN` instead.
+- **Edge angles before the shear.** Edge Angle measures the geometry it is
+  given; the shear changes angles (a cube's 90-degree edges no longer are), so
+  the split happens between Seat (rotation and translation only, angles
+  preserved) and Shear. `test_angles_are_measured_before_the_shear` uses a
+  strong shear to prove it.
+- **Marking edges sharp from Python:** `mesh.edges[i].use_edge_sharp = True`
+  works on 4.5 and 5.2 and writes the generic `sharp_edge` (EDGE, BOOLEAN)
+  attribute, which is what Edit Mode's Mark Sharp writes and what Named
+  Attribute reads.
+
+The other version differences the rig hits are handled by shims in
+`rig.py`: Geometry Nodes modifier inputs (`mod[identifier]` on 4.5,
 `mod.properties.inputs.<identifier>.value` on 5.2; `set_modifier_input`,
-section 1 table) and Transform Geometry's matrix mode (section 15,
-`set_transform_mode_matrix`).
+section 1 table), Transform Geometry's matrix mode (section 15,
+`set_transform_mode_matrix`) and the active colour attribute for VERTEX
+renders (the helper vertex above).
 
 Guardrails: `tests/blender/test_render.py` skips at module level when
 `ctypes.util.find_library("EGL")` is `None`, before anything renders; CI and

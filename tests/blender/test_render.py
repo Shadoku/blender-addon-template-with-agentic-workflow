@@ -2,7 +2,8 @@
 
 Workbench needs libEGL even headless, and without it Blender exits outright (no
 Python exception), so the whole module is skipped before anything renders when
-EGL is missing. Renders are 64x48 at 8 px per unit; the suite does five.
+EGL is missing. Renders are 64x48 at 8 px per unit; the suite does seven (the
+sharp-edge fixture adds a flat and an EDGES render).
 """
 
 import ctypes.util
@@ -101,6 +102,112 @@ def guides(tmp_path_factory) -> dict:
         },
         "material_names_after": {m.name for m in bpy.data.materials},
     }
+
+
+@pytest.fixture(scope="module")
+def edge_guides(tmp_path_factory) -> dict:
+    """One Render Guides call with only the outline enabled and sharp-edge inner lines (2 renders)."""
+    addon = _addon()
+    out_dir = str(tmp_path_factory.mktemp("edge_guides"))
+    settings = _setup_scene(
+        out_dir,
+        pass_flat=False,
+        pass_shaded=False,
+        pass_ids=False,
+        pass_silhouette=False,
+        pass_composite=False,
+        outline_enabled=True,
+        outline_outer_px=1,
+        outline_inner_px=1,
+        inner_lines="EDGES",
+        grid_enabled=False,
+    )
+    scene = bpy.context.scene
+    o = addon.core.oblique
+    mod = bpy.data.objects[o.RIG_NAME].modifiers[o.MODIFIER_NAME]
+    get = addon.rig.get_modifier_input
+    before = {name: get(mod, name) for name in ("Edge IDs", "Crease Angle", "Marked Sharp")}
+    view_before = scene.view_settings.view_transform
+    color_type_before = scene.display.shading.color_type
+    assert bpy.ops.oblique_rig.render_guides() == {"FINISHED"}
+    return {
+        "dir": out_dir,
+        "files": sorted(os.listdir(out_dir)),
+        "outline": addon.render.read_rgba(os.path.join(out_dir, "guide_outline.png")),
+        "params": addon.properties.params_from_settings(settings),
+        "inputs_before": before,
+        "inputs_after": {name: get(mod, name) for name in before},
+        "view": (view_before, scene.view_settings.view_transform),
+        "color_type": (color_type_before, scene.display.shading.color_type),
+    }
+
+
+def _front_crease(params) -> tuple[int, range]:
+    """Row and inner columns of the front cube's front/top crease (z = 1, y = 0, x -0.5..0.5).
+
+    Weight-1 inner lines sit on the lower side of a horizontal boundary, so the
+    line is the row just below the crease. The end columns are left out: at the
+    left end the floor shows above the front face, a boundary in every mode.
+    """
+    a, b = params.shear()
+    cam_x, _, cam_z = params.camera()
+    res_x, res_y = params.effective_resolution()
+
+    def project(point):
+        return _addon().core.oblique.project_to_pixels(
+            point, a, b, params.pixels_per_unit, cam_x, cam_z, res_x, res_y
+        )
+
+    x0, py = project((-0.5, 0.0, 1.0))
+    x1, py1 = project((0.5, 0.0, 1.0))
+    assert py == py1 == int(py), "pixel-exact: the crease lies on a pixel boundary"
+    assert x0 == int(x0) and x1 == int(x1)
+    return int(py) - 1, range(int(x0) + 1, int(x1))
+
+
+def test_edges_mode_draws_the_front_top_crease(edge_guides) -> None:
+    row, columns = _front_crease(edge_guides["params"])
+    drawn = edge_guides["outline"][..., 3] > 0
+    assert len(columns) >= 6
+    assert drawn[row, columns.start : columns.stop].all(), drawn[row].astype(int)
+
+
+def test_objects_mode_has_no_crease(guides) -> None:
+    row, columns = _front_crease(guides["params"])
+    drawn = guides["images"]["outline"][..., 3] > 0
+    assert not drawn[row, columns.start : columns.stop].any(), drawn[row].astype(int)
+
+
+def test_edges_pass_writes_only_the_outline(edge_guides) -> None:
+    assert edge_guides["files"] == ["guide_outline.png"], "flat and edge-id renders are temporary"
+    assert edge_guides["outline"].shape == (48, 64, 4)
+
+
+def test_edges_pass_restores_inputs_and_settings(edge_guides) -> None:
+    assert edge_guides["inputs_before"]["Edge IDs"] is False
+    assert edge_guides["inputs_after"]["Edge IDs"] is False
+    assert edge_guides["inputs_after"]["Crease Angle"] == pytest.approx(
+        edge_guides["inputs_before"]["Crease Angle"]
+    )
+    assert edge_guides["inputs_after"]["Marked Sharp"] == edge_guides["inputs_before"]["Marked Sharp"]
+    view_before, view_after = edge_guides["view"]
+    assert view_after == view_before != "Raw"
+    color_before, color_after = edge_guides["color_type"]
+    assert color_after == color_before
+
+
+def test_guard_restores_edge_inputs_without_rendering(addon, tmp_path) -> None:
+    _setup_scene(str(tmp_path), crease_angle=math.radians(40), edge_marked_sharp=True)
+    o = addon.core.oblique
+    mod = bpy.data.objects[o.RIG_NAME].modifiers[o.MODIFIER_NAME]
+    rig = addon.rig
+    with addon.render.RenderSettingsGuard(bpy.context.scene):
+        rig.set_modifier_input(mod, "Edge IDs", True)
+        rig.set_modifier_input(mod, "Crease Angle", 0.1)
+        rig.set_modifier_input(mod, "Marked Sharp", False)
+    assert rig.get_modifier_input(mod, "Edge IDs") is False
+    assert rig.get_modifier_input(mod, "Crease Angle") == pytest.approx(math.radians(40))
+    assert rig.get_modifier_input(mod, "Marked Sharp") is True
 
 
 def test_writes_exactly_the_enabled_passes(guides) -> None:

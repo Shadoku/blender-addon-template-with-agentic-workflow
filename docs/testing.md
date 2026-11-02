@@ -94,8 +94,21 @@ finally:
     rig_eval.to_mesh_clear()
 ```
 
+Attributes stored by the node tree are readable the same way, which tests a
+render pass's input without rendering. `tests/blender/test_edge_ids.py` turns
+the rig's "Edge IDs" input on with `rig.set_modifier_input`, reads the corner
+colour attribute `oblique_edge_id` from the evaluated mesh, decodes each value
+with `core.edge_ids.island_index` and counts islands: 6 for a cube, 2 for a
+flat two-quad plane whose middle edge is marked sharp (1 with Marked Sharp
+off), 3 for a 24-segment cylinder at a 30-degree crease angle and 26 at 10.
+It also asserts the decoded colours equal `island_color(i)` exactly and that
+the evaluated mesh's `color_attributes.active_color_name` is the island
+attribute, which is what Workbench 4.5 renders in VERTEX mode
+(`docs/pitfalls.md`, section 16). The render test then only has to show that
+the island boundaries reach the outline pass.
+
 `evaluated_depsgraph_get()` brings the depsgraph up to date, so call it again
-after changing a setting. `to_mesh()` returns only the object's mesh
+after changing a setting (or the modifier inputs). `to_mesh()` returns only the object's mesh
 component: it is empty when the tree outputs unrealized instances, which is
 one reason the rig ends in Realize Instances (otherwise walk
 `depsgraph.object_instances`). Free the mesh with `to_mesh_clear()`.
@@ -136,7 +149,9 @@ The scene is small on purpose: the calibration objects at 64x48 px and 8 px
 per unit, one unit of depth = 8 px right and 4 px up. A module-scoped fixture
 calls Render Guides once with flat, ids, silhouette, outline, grid and
 composite enabled; separate tests do one turnaround (two facings) and one
-settings-guard render, five renders in all, a few seconds under llvmpipe.
+settings-guard render, and a second module fixture renders the outline with
+sharp-edge inner lines (a flat and an EDGES render): seven renders in all, a
+few seconds under llvmpipe.
 
 The assertions are pixel-exact, because the passes are meant to be traced:
 
@@ -151,7 +166,12 @@ The assertions are pixel-exact, because the passes are meant to be traced:
   predicts;
 - the composite is opaque wherever the flat pass is, with the outline on top;
 - the turnaround sheet is exactly its frames side by side, and the render
-  settings, the rig's Direction input and the user's materials are restored.
+  settings, the rig's Direction input and the user's materials are restored;
+- in EDGES mode the front calibration cube's front/top crease is a run of
+  outline pixels on the row `core.oblique.project_to_pixels` predicts for
+  z = 1 (the row below the boundary), and the OBJECTS-mode outline has none
+  there; only the outline file is written, and the Edge IDs, Crease Angle and
+  Marked Sharp inputs, the view transform and the colour type are restored.
 
 Images are read back with `render.read_rgba` (Non-Color, so `pixels` are the
 raw bytes) and compared as numpy arrays, row 0 at the bottom. The `EGL Error

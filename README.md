@@ -215,7 +215,8 @@ written byte for byte.
 
 Passes you did not enable are not written, even when one was rendered to
 derive another (the flat pass feeds silhouette and outline, the ids pass feeds
-object inner lines).
+object inner lines, and an edge-id render feeds sharp-edge inner lines; that
+one is never written).
 
 **Turnarounds** write `<name>_dNN_<pass>.png` for facing `NN` (`d00` is
 Direction, then every 360/Directions degrees), and with Sprite Sheet
@@ -230,9 +231,43 @@ frame with Fit at the widest facing (or pad generously).
 | Outer Weight | 1 px | Width of the silhouette outline in whole pixels (0 to 8; 0 turns it off). |
 | Inner Weight | 1 px | Width of lines inside the silhouette in whole pixels (0 to 8). |
 | Position | Outside | Outside: the line grows the shape. Inside: the line eats into it (the sprite keeps its size). |
-| Inner Lines | Objects | None; Objects (where one object meets another, from the ids pass); Materials (where one flat colour meets another, from the flat pass). |
+| Inner Lines | Objects | None; Objects; Materials; Sharp Edges (see below). |
+| Crease Angle | 30° | Sharp Edges only: edges whose two faces meet at more than this angle get a line (0° to 180°). |
+| Marked Sharp | on | Sharp Edges only: edges marked sharp in Edit Mode also get a line. |
 | Corners | off | Off: lines grow 4-connected, giving the stepped pixel-art corner. On: 8-connected, square corners. |
 | Outline Color | black, opaque | Colour of the pass. |
+
+**Inner line modes.** Inner lines are drawn wherever two regions of a
+helper render meet inside the silhouette; the modes differ in what a region
+is:
+
+- **Objects**: one region per source object (from the ids pass). Lines where
+  one object overlaps or touches another; the folds of a single object get
+  none.
+- **Materials**: one region per flat material colour (from the flat pass).
+  Lines where colours change; two objects with the same material merge.
+- **Sharp Edges**: one region per piece of surface between sharp edges. The
+  rig splits the source along every edge sharper than *Crease Angle* and,
+  with *Marked Sharp*, every edge marked sharp, then gives each piece its own
+  colour in a hidden render (Workbench vertex colour). Lines appear at object
+  boundaries, at hard creases (a box gets its front/top and front/side edges)
+  and on marked edges, but not across smooth curvature: a 24-sided cylinder
+  keeps one smooth side at 30°, while 10° outlines every facet. Angles are
+  measured on the source before the oblique shear, so the projection never
+  adds or removes creases.
+
+**Edge loops.** To get a line along a loop that is not a hard crease (a
+belt, a seam between two panels, the rim of a soft shape), mark it sharp in
+Edit Mode: select the loop (Alt+click an edge in Edge select mode) and run
+*Edge > Mark Sharp*. With *Marked Sharp* on, every marked edge gets a line
+whatever its angle. Marks are stored in Blender's standard `sharp_edge`
+attribute, the one Smooth by Angle and the Edge Split modifier respect, so on
+a smooth-shaded mesh marked edges also shade hard. Turn *Marked Sharp* off to
+outline by angle only.
+
+A surface that folds over itself without a sharp edge (the far side of a
+smooth torus seen through its hole, say) is one region, so no line separates
+it from itself; mark an edge sharp there, or let the outer outline do the work.
 
 Weights are exact: an outer weight of 2 is two pixels thick everywhere, and an
 inner weight of N is an N-pixel line on the boundary (weight 1 sits on the

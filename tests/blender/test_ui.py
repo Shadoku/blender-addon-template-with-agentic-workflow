@@ -46,7 +46,21 @@ def test_every_setting_is_drawn(addon, recording_layout) -> None:
     _draw_all(addon, recording_layout)  # pixel-exact: depth px pair
     settings.pixel_exact = False
     _draw_all(addon, recording_layout)  # float mode: slope controls
+    settings.inner_lines = "EDGES"
+    _draw_all(addon, recording_layout)  # sharp-edge lines: crease angle and marked sharp
     assert _props(recording_layout.calls) == _all_settings(addon) - READOUTS
+
+
+@pytest.mark.parametrize("mode", ["NONE", "OBJECTS", "MATERIALS"])
+def test_edge_settings_only_in_edges_mode(addon, recording_layout, mode) -> None:
+    settings = addon.properties.get_settings(bpy.context)
+    settings.inner_lines = mode
+    drawn = _props(_draw(addon.ui.OBLIQUE_RIG_PT_output, recording_layout))
+    assert not drawn & {"crease_angle", "edge_marked_sharp"}
+    settings.inner_lines = "EDGES"
+    recording_layout.calls.clear()
+    drawn = _props(_draw(addon.ui.OBLIQUE_RIG_PT_output, recording_layout))
+    assert {"crease_angle", "edge_marked_sharp"} <= drawn
 
 
 def test_pixel_exact_hides_the_float_slope_controls(addon, recording_layout) -> None:

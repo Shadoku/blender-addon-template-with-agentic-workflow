@@ -173,6 +173,9 @@ class OBLIQUE_RIG_PT_output(_SubPanel, Panel):
         col.prop(settings, "outline_inner_px")
         col.prop(settings, "outline_position")
         col.prop(settings, "inner_lines")
+        if settings.inner_lines == "EDGES":
+            col.prop(settings, "crease_angle")
+            col.prop(settings, "edge_marked_sharp")
         col.prop(settings, "outline_corners")
         col.prop(settings, "outline_color")
 

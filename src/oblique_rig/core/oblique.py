@@ -228,6 +228,10 @@ class RigParams:
     """Rotation of the source about Z before the shear, radians."""
     auto_seat: bool = True
     view_mode: str = "SHEARED"
+    crease_angle: float = math.radians(30)
+    """Sharp-edge outlines: edges whose faces meet at more than this (radians) get a line."""
+    edge_marked_sharp: bool = True
+    """Sharp-edge outlines: edges marked sharp (the ``sharp_edge`` attribute) also get a line."""
 
     def shear(self) -> tuple[float, float]:
         """Shear coefficients ``(a, b)``: units moved right and up per unit of depth.

@@ -76,6 +76,9 @@ def test_node_group_layout(addon) -> None:
         "Depth Scale",
         "Direction",
         "Auto Seat",
+        "Edge IDs",
+        "Crease Angle",
+        "Marked Sharp",
     ]
     assert outputs == ["Geometry"]
     depth = next(i for i in ng.interface.items_tree if i.name == "Depth Scale")
@@ -85,6 +88,14 @@ def test_node_group_layout(addon) -> None:
     assert direction.default_value == pytest.approx(0.0)
     seat = next(i for i in ng.interface.items_tree if i.name == "Auto Seat")
     assert seat.socket_type == "NodeSocketBool" and seat.default_value is True
+    edge_ids = next(i for i in ng.interface.items_tree if i.name == "Edge IDs")
+    assert edge_ids.socket_type == "NodeSocketBool" and edge_ids.default_value is False
+    crease = next(i for i in ng.interface.items_tree if i.name == "Crease Angle")
+    assert crease.socket_type == "NodeSocketFloat" and crease.subtype == "ANGLE"
+    assert crease.default_value == pytest.approx(math.radians(30))
+    assert (crease.min_value, crease.max_value) == pytest.approx((0.0, math.pi))
+    marked = next(i for i in ng.interface.items_tree if i.name == "Marked Sharp")
+    assert marked.socket_type == "NodeSocketBool" and marked.default_value is True
 
     kinds = {n.bl_idname for n in ng.nodes}
     for needed in (
@@ -95,6 +106,11 @@ def test_node_group_layout(addon) -> None:
         "GeometryNodeBoundBox",
         "GeometryNodeSwitch",
         "FunctionNodeEulerToRotation",
+        "GeometryNodeSplitEdges",
+        "GeometryNodeInputMeshEdgeAngle",
+        "GeometryNodeInputMeshIsland",
+        "FunctionNodeCombineColor",
+        "GeometryNodeStoreNamedAttribute",
     ):
         assert needed in kinds
 
@@ -110,24 +126,47 @@ def test_node_group_layout(addon) -> None:
     def linked(a, b) -> bool:
         return any(link.from_node == a and link.to_node == b for link in ng.links)
 
-    # Collection Info -> Realize Source -> Turn -> Seat -> Shear -> Realize Instances -> Group Output
+    # Collection Info -> Realize Source -> Turn -> Seat -> Edge IDs switch -> Shear -> Realize -> Output
     out = next(n for n in ng.nodes if n.bl_idname == "NodeGroupOutput")
     realize = next(link.from_node for link in ng.links if link.to_node == out)
     assert realize.bl_idname == "GeometryNodeRealizeInstances"
+    edge_switch = ng.nodes["Edge IDs"]
+    assert edge_switch.bl_idname == "GeometryNodeSwitch" and edge_switch.input_type == "GEOMETRY"
     chain = [
         coll_info,
         ng.nodes["Realize Source"],
         ng.nodes["Turn"],
         ng.nodes["Seat"],
+        edge_switch,
         transform,
         realize,
         out,
     ]
     for a, b in pairwise(chain):
         assert linked(a, b), f"{a.name} -> {b.name}"
+    # The edge branch: Seat -> Split Edges -> Store (island colour) -> ... -> the switch's True input.
+    assert linked(ng.nodes["Seat"], ng.nodes["Split Sharp Edges"])
+    assert linked(ng.nodes["Split Sharp Edges"], ng.nodes["Store Edge IDs"])
+    store = ng.nodes["Store Edge IDs"]
+    assert (store.data_type, store.domain) == ("FLOAT_COLOR", "CORNER")
+    assert store.inputs["Name"].default_value == addon.core.edge_ids.EDGE_ID_ATTRIBUTE
     switch = ng.nodes["Auto Seat"]
     assert switch.bl_idname == "GeometryNodeSwitch" and switch.input_type == "VECTOR"
     assert linked(switch, ng.nodes["Seat"])
+
+
+def test_rig_mesh_carries_the_edge_id_helper(addon) -> None:
+    """One loose vertex with the active colour attribute: Realize copies that name to the output."""
+    o = _names(addon)
+    bpy.ops.oblique_rig.build()
+    mesh = bpy.data.objects[o.RIG_NAME].data
+    assert len(mesh.vertices) == 1 and len(mesh.polygons) == 0
+    name = addon.core.edge_ids.EDGE_ID_ATTRIBUTE
+    attr = mesh.color_attributes.get(name)
+    assert attr is not None and (attr.domain, attr.data_type) == ("CORNER", "FLOAT_COLOR")
+    assert mesh.color_attributes.active_color_name == name
+    bpy.ops.oblique_rig.build()
+    assert len(mesh.vertices) == 1 and [a.name for a in mesh.color_attributes] == [name]
 
 
 def test_camera(addon) -> None:

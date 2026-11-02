@@ -1,4 +1,5 @@
 import dataclasses
+import math
 import warnings
 
 import bpy
@@ -39,6 +40,8 @@ DEFAULTS = {
     "inner_lines": "OBJECTS",
     "outline_corners": False,
     "outline_color": (0.0, 0.0, 0.0, 1.0),
+    "crease_angle": math.radians(30),
+    "edge_marked_sharp": True,
     "last_footprint": "",
     "last_warnings": "",
 }
@@ -57,12 +60,14 @@ MINIMUMS = {
     "grid_extent": 1,
     "outline_outer_px": 0,
     "outline_inner_px": 0,
+    "crease_angle": 0.0,
 }
 
 MAXIMUMS = {
     "direction_count": 16,
     "outline_outer_px": 8,
     "outline_inner_px": 8,
+    "crease_angle": math.pi,
 }
 
 TYPES = {
@@ -87,6 +92,7 @@ TYPES = {
         "direction",
         "grid_color",
         "outline_color",
+        "crease_angle",
     },
     "BOOLEAN": {
         "pixel_exact",
@@ -100,6 +106,7 @@ TYPES = {
         "grid_enabled",
         "outline_enabled",
         "outline_corners",
+        "edge_marked_sharp",
     },
     "STRING": {"output_dir", "output_name", "last_footprint", "last_warnings"},
     "ENUM": {"view_mode", "outline_position", "inner_lines"},
@@ -139,12 +146,13 @@ def test_types(addon) -> None:
     assert rna["depth_px_right"].soft_max == 64 and rna["depth_px_up"].soft_max == 64
     assert {i.identifier for i in rna["view_mode"].enum_items} == {"SOURCE", "SHEARED"}
     assert {i.identifier for i in rna["outline_position"].enum_items} == {"OUTSIDE", "INSIDE"}
-    assert {i.identifier for i in rna["inner_lines"].enum_items} == {"NONE", "OBJECTS", "MATERIALS"}
+    assert {i.identifier for i in rna["inner_lines"].enum_items} == {"NONE", "OBJECTS", "MATERIALS", "EDGES"}
 
 
 def test_subtypes(addon) -> None:
     rna = addon.properties.OBLIQUE_RIG_Settings.bl_rna.properties
     assert rna["direction"].subtype == "ANGLE"
+    assert rna["crease_angle"].subtype == "ANGLE"
     assert rna["output_dir"].subtype == "DIR_PATH"
     assert rna["camera_offset_x"].unit == "LENGTH"
     for name in ("grid_color", "outline_color"):
@@ -175,7 +183,7 @@ def test_clamped_at_min(addon, name, minimum) -> None:
 def test_clamped_at_max(addon, name, maximum) -> None:
     settings = addon.properties.get_settings(bpy.context)
     setattr(settings, name, 1000)
-    assert getattr(settings, name) == maximum
+    assert getattr(settings, name) == pytest.approx(maximum)
 
 
 def test_params_from_settings(addon) -> None:
@@ -192,6 +200,8 @@ def test_params_from_settings(addon) -> None:
     settings.auto_seat = False
     settings.camera_offset_x = 0.75
     settings.view_mode = "SOURCE"
+    settings.crease_angle = math.radians(45)
+    settings.edge_marked_sharp = False
     params = addon.properties.params_from_settings(settings)
     assert isinstance(params, addon.core.oblique.RigParams)
     assert params.pixel_exact is False
@@ -200,6 +210,8 @@ def test_params_from_settings(addon) -> None:
     assert params.auto_seat is False
     assert params.camera_offset_x == pytest.approx(0.75)
     assert params.view_mode == "SOURCE"
+    assert params.crease_angle == pytest.approx(math.radians(45))
+    assert params.edge_marked_sharp is False
 
 
 def test_reset_restores_every_default(addon) -> None:

@@ -21,6 +21,12 @@ whole source collection into a single mesh, so Workbench's RANDOM colour (one
 per *object*) paints it all one colour. Instead every source object's data
 temporarily gets a uniquely coloured material and the pass renders with
 MATERIAL colour; the original material slots are put back afterwards.
+
+The sharp-edge pass (kind EDGES) switches the rig's "Edge IDs" input on: the
+node group then splits the source along sharp edges and stores one colour
+per mesh island (``core.edge_ids``). Workbench renders that colour attribute
+in VERTEX colour mode, and the Raw view transform returns the stored
+``byte / 255`` as exactly ``byte``, so every pixel names its island.
 """
 
 import colorsys
@@ -36,8 +42,13 @@ from .core import compose, guides, outline, png
 from .core.oblique import MODIFIER_NAME, RIG_NAME, SOURCE_COLLECTION
 
 PASS_ORDER = ("flat", "shaded", "ids", "silhouette", "outline", "grid", "composite")
-RENDER_KINDS = ("FLAT", "SHADED", "IDS")
+RENDER_KINDS = ("FLAT", "SHADED", "IDS", "EDGES")
 DIRECTION_INPUT = "Direction"
+EDGE_IDS_INPUT = "Edge IDs"
+CREASE_ANGLE_INPUT = "Crease Angle"
+MARKED_SHARP_INPUT = "Marked Sharp"
+GUARDED_INPUTS = (DIRECTION_INPUT, EDGE_IDS_INPUT, CREASE_ANGLE_INPUT, MARKED_SHARP_INPUT)
+"""Rig modifier inputs that render passes change and :class:`RenderSettingsGuard` restores."""
 ID_MATERIAL_PREFIX = "OBLIQUE_RIG_id_"
 SILHOUETTE_COLOR = (0, 0, 0, 255)
 
@@ -55,24 +66,35 @@ def _rig_modifier() -> bpy.types.Modifier | None:
     return mod
 
 
-def get_direction() -> float | None:
-    """The rig modifier's "Direction" input, or None if there is no rig (or no such input)."""
+def get_rig_input(name: str) -> Any:
+    """A rig modifier input by name, or None if there is no rig (or no such input, e.g. a 0.1 rig)."""
     mod = _rig_modifier()
     if mod is None:
         return None
     try:
-        return float(rig.get_modifier_input(mod, DIRECTION_INPUT))
+        return rig.get_modifier_input(mod, name)
     except KeyError:
         return None
 
 
-def set_direction(radians: float) -> None:
-    """Set the rig modifier's "Direction" input and tag the rig for re-evaluation."""
+def set_rig_input(name: str, value: Any) -> None:
+    """Set a rig modifier input by name and tag the rig for re-evaluation."""
     mod = _rig_modifier()
     if mod is None:
         raise RuntimeError(f"no '{RIG_NAME}' object with a '{MODIFIER_NAME}' modifier; build the rig first")
-    rig.set_modifier_input(mod, DIRECTION_INPUT, float(radians))
+    rig.set_modifier_input(mod, name, value)
     mod.id_data.update_tag()
+
+
+def get_direction() -> float | None:
+    """The rig modifier's "Direction" input, or None if there is no rig (or no such input)."""
+    value = get_rig_input(DIRECTION_INPUT)
+    return None if value is None else float(value)
+
+
+def set_direction(radians: float) -> None:
+    """Set the rig modifier's "Direction" input and tag the rig for re-evaluation."""
+    set_rig_input(DIRECTION_INPUT, float(radians))
 
 
 class RenderSettingsGuard:
@@ -80,7 +102,9 @@ class RenderSettingsGuard:
 
     Values are restored in the order they were saved: ``file_format`` before
     ``color_depth`` and ``view_transform`` before ``look``, because the valid
-    values of the latter depend on the former.
+    values of the latter depend on the former. The rig modifier inputs in
+    :data:`GUARDED_INPUTS` (Direction and the Edge IDs switch with its two
+    parameters) are restored too.
     """
 
     RENDER_ATTRS = (
@@ -111,7 +135,7 @@ class RenderSettingsGuard:
     def __init__(self, scene: bpy.types.Scene) -> None:
         self.scene = scene
         self._saved: list[tuple[Any, str, Any]] = []
-        self._direction: float | None = None
+        self._inputs: dict[str, Any] = {}
 
     def _owners(self) -> list[tuple[Any, tuple[str, ...]]]:
         s = self.scene
@@ -131,15 +155,20 @@ class RenderSettingsGuard:
                 if hasattr(value, "__len__") and not isinstance(value, str):
                     value = tuple(value)
                 self._saved.append((owner, attr, value))
-        self._direction = get_direction()
+        self._inputs = {}
+        for name in GUARDED_INPUTS:
+            value = get_rig_input(name)
+            if value is not None:
+                self._inputs[name] = value
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         for owner, attr, value in self._saved:
             if getattr(owner, attr) != value:
                 setattr(owner, attr, value)
-        if self._direction is not None and get_direction() != self._direction:
-            set_direction(self._direction)
+        for name, value in self._inputs.items():
+            if get_rig_input(name) != value:
+                set_rig_input(name, value)
         return False
 
 
@@ -223,13 +252,23 @@ def _set_look_none(scene: bpy.types.Scene) -> None:
         scene.view_settings.look = "NONE"
 
 
-def render_pass(scene: bpy.types.Scene, kind: str, path: str) -> None:
+def render_pass(
+    scene: bpy.types.Scene,
+    kind: str,
+    path: str,
+    crease_angle: float | None = None,
+    marked_sharp: bool | None = None,
+) -> None:
     """Render one Workbench pass to ``path`` (PNG RGBA 8-bit) with exact, unfiltered pixels.
 
     ``kind``: FLAT (flat light, material colour), SHADED (studio light,
-    material colour) or IDS (flat light, one temporary colour per source
-    object). Leaves the changed settings in place; wrap calls in
-    :class:`RenderSettingsGuard`.
+    material colour), IDS (flat light, one temporary colour per source
+    object) or EDGES (flat light, VERTEX colour under the Raw view transform,
+    with the rig's "Edge IDs" input on: one colour per island between sharp
+    edges, see ``core.edge_ids``). For EDGES, ``crease_angle`` (radians) and
+    ``marked_sharp`` set the rig's inputs of the same name; None keeps what
+    the rig has. Leaves the changed settings and inputs in place; wrap calls
+    in :class:`RenderSettingsGuard`.
     """
     if kind not in RENDER_KINDS:
         raise ValueError(f"kind must be one of {RENDER_KINDS}, got {kind!r}")
@@ -251,14 +290,24 @@ def render_pass(scene: bpy.types.Scene, kind: str, path: str) -> None:
     scene.display.render_aa = "OFF"
     shading = scene.display.shading
     shading.light = "STUDIO" if kind == "SHADED" else "FLAT"
-    shading.color_type = "MATERIAL"
+    shading.color_type = "VERTEX" if kind == "EDGES" else "MATERIAL"
     shading.show_object_outline = False
     shading.show_cavity = False
     shading.show_shadows = False
     shading.show_xray = False
-    scene.view_settings.view_transform = "Standard"
+    # Raw: the stored linear island colour byte / 255 comes back as exactly byte.
+    scene.view_settings.view_transform = "Raw" if kind == "EDGES" else "Standard"
     _set_look_none(scene)
     r.filepath = path
+
+    if kind == "EDGES":
+        if _rig_modifier() is None:
+            raise RuntimeError(f"the EDGES pass needs the '{RIG_NAME}' object; build the rig first")
+        set_rig_input(EDGE_IDS_INPUT, True)
+        if crease_angle is not None:
+            set_rig_input(CREASE_ANGLE_INPUT, float(crease_angle))
+        if marked_sharp is not None:
+            set_rig_input(MARKED_SHARP_INPUT, bool(marked_sharp))
 
     if kind == "IDS":
         with _IdMaterials():
@@ -288,13 +337,12 @@ def write_rgba(path: str, pixels: np.ndarray) -> None:
 # --------------------------------------------------------------------------- guides
 
 
+def _inner_from(settings, mode: str) -> bool:
+    return bool(settings.outline_enabled and settings.inner_lines == mode and settings.outline_inner_px > 0)
+
+
 def _needed_renders(settings) -> dict[str, bool]:
-    inner_from_ids = (
-        settings.outline_enabled and settings.inner_lines == "OBJECTS" and settings.outline_inner_px > 0
-    )
-    inner_from_flat = (
-        settings.outline_enabled and settings.inner_lines == "MATERIALS" and settings.outline_inner_px > 0
-    )
+    inner_from_flat = _inner_from(settings, "MATERIALS")
     return {
         "flat": bool(
             settings.pass_flat
@@ -304,17 +352,20 @@ def _needed_renders(settings) -> dict[str, bool]:
             or (settings.pass_composite and not settings.pass_shaded)
         ),
         "shaded": bool(settings.pass_shaded),
-        "ids": bool(settings.pass_ids or inner_from_ids),
+        "ids": bool(settings.pass_ids or _inner_from(settings, "OBJECTS")),
+        "edges": _inner_from(settings, "EDGES"),  # never written, only labelled
     }
 
 
-def _outline_mask(settings, flat: np.ndarray, ids: np.ndarray | None) -> np.ndarray:
+def _outline_mask(settings, images: dict[str, np.ndarray]) -> np.ndarray:
+    """Outer outline from the flat alpha, OR-ed with inner lines from the pass ``inner_lines`` names."""
+    flat = images["flat"]
     corners = bool(settings.outline_corners)
     mask = outline.outer_outline(
         flat[..., 3], settings.outline_outer_px, position=settings.outline_position, corners=corners
     )
     if settings.outline_inner_px > 0 and settings.inner_lines != "NONE":
-        source = ids if settings.inner_lines == "OBJECTS" else flat
+        source = images.get({"OBJECTS": "ids", "MATERIALS": "flat", "EDGES": "edges"}[settings.inner_lines])
         if source is not None:
             labels = outline.label_image(outline.merge_near_colors(source))
             mask = mask | outline.inner_lines(labels, settings.outline_inner_px, corners=corners)
@@ -371,23 +422,30 @@ def render_guides(
         scene.render.resolution_y = height
         scene.render.resolution_percentage = 100
 
-        for pass_name, kind in (("flat", "FLAT"), ("shaded", "SHADED"), ("ids", "IDS")):
+        passes = (("flat", "FLAT"), ("shaded", "SHADED"), ("ids", "IDS"), ("edges", "EDGES"))
+        for pass_name, kind in passes:
             if not needed[pass_name]:
                 continue
             path = path_of(pass_name)
-            render_pass(scene, kind, path)
-            images[pass_name] = read_rgba(path)
-            if getattr(settings, f"pass_{pass_name}"):
-                written[pass_name] = path
+            if kind == "EDGES":
+                render_pass(scene, kind, path, params.crease_angle, params.edge_marked_sharp)
             else:
-                os.remove(path)  # rendered only to derive other passes
+                render_pass(scene, kind, path)
+            keep = bool(getattr(settings, f"pass_{pass_name}", False))  # there is no pass_edges
+            try:
+                images[pass_name] = read_rgba(path)
+            finally:
+                if not keep:
+                    os.remove(path)  # rendered only to derive other passes
+            if keep:
+                written[pass_name] = path
 
     flat = images.get("flat")
     layers: dict[str, np.ndarray] = {}
     if settings.pass_silhouette and flat is not None:
         layers["silhouette"] = outline.paint(flat[..., 3] >= 128, SILHOUETTE_COLOR)
     if settings.outline_enabled and flat is not None:
-        mask = _outline_mask(settings, flat, images.get("ids"))
+        mask = _outline_mask(settings, images)
         layers["outline"] = outline.paint(mask, compose.rgba8(tuple(settings.outline_color)))
     if settings.grid_enabled:
         layers["grid"] = _grid(settings, params, width, height)

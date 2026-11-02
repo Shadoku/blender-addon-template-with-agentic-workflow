@@ -2,8 +2,8 @@
 
 Blender extension that builds a 2:1 oblique projection rig for pixel-art guides
 (Geometry Nodes shear, pixel-grid orthographic camera, flat render settings) and
-renders pixel-exact guide passes to PNG (flat, shaded, ids, silhouette, outline,
-grid, composite, turnaround sheets),
+renders pixel-exact guide passes to PNG (flat, shaded, ids, silhouette, outline
+with object/material/sharp-edge inner lines, grid, composite, turnaround sheets),
 set up for AI-assisted development: every change is verified by
 `python3 tools/check.py`, which runs headless without opening Blender's UI.
 Trust its output over your own reasoning about whether code works. Blender's
@@ -119,13 +119,14 @@ src/<id>/                   the extension package (this is what gets zipped)
     oblique.py              shear, pixel-exact params (RigParams), projection, fit_frame
     primitives.py           calibration mesh vertices
     outline.py              whole-pixel outlines, labels, merge_near_colors
+    edge_ids.py             island index <-> colour for sharp-edge outlines (EDGES pass)
     guides.py               Bresenham lines, floor grid layer
     compose.py              straight-alpha "over", layer stacks, sprite sheets
     png.py                  stdlib PNG encode/decode (byte-exact output)
     presets.py              slope and resolution presets
     overlap.py              depth-sort warning (3D bounding-box interpenetration)
   rig.py                    Blender-facing builders: node group, camera, render settings, bounds
-  render.py                 Workbench passes, settings guard, guide/turnaround files
+  render.py                 Workbench passes (incl. EDGES: VERTEX colour, Raw), settings guard, guide/turnaround files
   operators.py              thin operators: build, add_selected, add_calibration, remove,
                             fit_to_content, apply_slope_preset, apply_resolution_preset
   operators_render.py       render_guides, render_turnaround (write files; REGISTER, no UNDO)
