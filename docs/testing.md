@@ -27,8 +27,8 @@ read or write your real preferences.
 ## Fixtures (tests/blender/conftest.py)
 
 - `addon`: the live module. `addon.operators`, `addon.properties`, ...
-- `clean_scene` (autouse): removes all objects and orphan datablocks, calls
-  `view_layer.update()`, and resets the add-on's PropertyGroup to defaults.
+- `clean_scene` (autouse): removes all objects, collections, node groups and
+  orphan datablocks, calls `view_layer.update()`, and resets the add-on's PropertyGroup to defaults.
   It deliberately does not reload a file: `read_homefile` /
   `read_factory_settings` re-sync enabled add-ons from preferences and can
   silently drop a session-enabled add-on.
@@ -41,15 +41,18 @@ read or write your real preferences.
 ### Operators
 
 ```python
-def test_spaces_objects(addon, make_object):
-    a = make_object("A", (5, 0, 0))
-    b = make_object("B", (0, 0, 0))
-    addon.properties.get_settings(bpy.context).gap = 2.0
-    assert bpy.ops.my_addon.space_evenly() == {"FINISHED"}
-    assert (a.location.x, b.location.x) == pytest.approx((2.0, 0.0))
+def test_build_creates_pixel_grid_camera(addon):
+    assert bpy.ops.oblique_rig.build() == {"FINISHED"}
+    cam = bpy.data.objects["Oblique Camera"]
+    assert cam.data.type == "ORTHO"
+    assert cam.data.ortho_scale == pytest.approx(20.0)  # 320 px / 16 px per unit
+    assert bpy.context.scene.camera == cam
 ```
 
-Test `poll()` with `bpy.ops.my_addon.space_evenly.poll()`. Messages passed to
+`tests/blender/test_build.py` also runs the operator twice and asserts there is
+still exactly one of each object, which is how idempotency is pinned down;
+`test_remove.py` asserts nothing named by the rig is left in `bpy.data`.
+Test `poll()` with `bpy.ops.oblique_rig.build.poll()`. Messages passed to
 `self.report` are printed to stdout in background mode; assert on data, not on
 the message.
 
@@ -61,16 +64,42 @@ Read as attributes. Expect clamping (`min=0.0` turns `-5` into `0`) and a
 ### Registration
 
 `test_register.py` disables and re-enables the add-on within the session and
-asserts that every class, the Scene property, the handler and the keymap item
-are gone in between. The `package` stage repeats a generic version of this
+asserts that every class, the Scene property and the handler are gone in
+between. The `package` stage repeats a generic version of this
 against the installed zip by diffing `dir(bpy.types)` before and after.
+
+### Evaluated geometry (Geometry Nodes)
+
+Modifiers, Geometry Nodes included, are evaluated headless exactly as in the
+UI: the depsgraph is real, only drawing is missing. So the output of a node
+tree is testable, and `tests/blender/test_shear.py` uses it to prove the rig
+works rather than only that it was assembled:
+
+```python
+bpy.ops.oblique_rig.build()
+bpy.ops.oblique_rig.add_calibration()
+depsgraph = bpy.context.evaluated_depsgraph_get()
+rig_eval = bpy.data.objects["Oblique Rig"].evaluated_get(depsgraph)
+mesh = rig_eval.to_mesh()
+try:
+    back = [v.co for v in mesh.vertices if 2.5 <= v.co.y <= 3.5]
+    ...  # x and z shifted by 3*a and 3*b relative to the front cube, y unchanged
+finally:
+    rig_eval.to_mesh_clear()
+```
+
+`evaluated_depsgraph_get()` brings the depsgraph up to date, so call it again
+after changing a setting. `to_mesh()` returns only the object's mesh
+component: it is empty when the tree outputs unrealized instances, which is
+one reason the rig ends in Realize Instances (otherwise walk
+`depsgraph.object_instances`). Free the mesh with `to_mesh_clear()`.
 
 ### UI
 
 ```python
 def test_panel_draws(addon, recording_layout):
     fake = type("P", (), {"layout": recording_layout})()
-    addon.ui.MY_ADDON_PT_sidebar.draw(fake, bpy.context)
+    addon.ui.OBLIQUE_RIG_PT_sidebar.draw(fake, bpy.context)
     assert ("prop", ...) in ...  # see tests/blender/test_ui.py
 ```
 
@@ -87,6 +116,9 @@ disable. `hasattr(fn, "_bpy_persistent")` is how Blender marks `@persistent`.
 
 Create objects with `bpy.data.objects.new` rather than `bpy.ops.mesh.primitive_*`
 when you only need a transform; it is faster and does not depend on context.
+Meshes the same way: the calibration objects come from vertex lists in
+`core/primitives.py` fed to `mesh.from_pydata`, because `primitive_cube_add`
+depends on the operator context and the active object.
 
 ## What headless Blender cannot verify
 
@@ -109,7 +141,7 @@ blender -b --factory-startup --python-exit-code 1 --python tools/blender_bootstr
 # Unit tests
 PYTHONPATH=.blender-deps/py3.13 ~/.cache/blender/5.2.3/5.2/python/bin/python3.13 -m pytest tests/unit -q
 # Lint
-python3 tools/lint_addon.py src/my_addon
+python3 tools/lint_addon.py src/oblique_rig
 ```
 
 Set `BLENDER_USER_CONFIG` etc. yourself when running the bootstrap by hand, or

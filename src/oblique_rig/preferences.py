@@ -11,12 +11,12 @@ from bpy.props import BoolProperty
 from bpy.types import AddonPreferences
 
 
-class MY_ADDON_Preferences(AddonPreferences):
+class OBLIQUE_RIG_Preferences(AddonPreferences):
     bl_idname = __package__
 
     report_results: BoolProperty(
         name="Report results",
-        description="Show an info message in the status bar after spacing objects",
+        description="Show an info message in the status bar after building, calibrating or removing the rig",
         default=True,
     )
 
@@ -24,8 +24,8 @@ class MY_ADDON_Preferences(AddonPreferences):
         self.layout.prop(self, "report_results")
 
 
-CLASSES: tuple[type, ...] = (MY_ADDON_Preferences,)
+CLASSES: tuple[type, ...] = (OBLIQUE_RIG_Preferences,)
 
 
-def get_prefs(context: bpy.types.Context) -> MY_ADDON_Preferences:
+def get_prefs(context: bpy.types.Context) -> OBLIQUE_RIG_Preferences:
     return context.preferences.addons[__package__].preferences

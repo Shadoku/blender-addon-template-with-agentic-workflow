@@ -1,7 +1,9 @@
-# Blender add-on template (Blender 4.5 LTS – 5.2 LTS, extensions system)
+# Oblique Rig (Blender 4.5 LTS – 5.2 LTS, extensions system)
 
-Blender extension set up for AI-assisted development: every change is verified
-by `python3 tools/check.py`, which runs headless without opening Blender's UI.
+Blender extension that builds a 2:1 oblique projection rig for pixel-art guides
+(Geometry Nodes shear, pixel-grid orthographic camera, flat render settings),
+set up for AI-assisted development: every change is verified by
+`python3 tools/check.py`, which runs headless without opening Blender's UI.
 Trust its output over your own reasoning about whether code works. Blender's
 Python API has changed in every release since 2.80; what you remember may be
 outdated, what the check reports is current.
@@ -12,12 +14,12 @@ outdated, what the check reports is current.
 |---|---|
 | Everything (lint, unit, blender, package) | `python3 tools/check.py` |
 | Only the Blender tests | `python3 tools/check.py --only blender` |
-| One test file or method (pytest `-k`) | `python3 tools/check.py --only blender --filter=space_evenly` |
+| One test file or method (pytest `-k`) | `python3 tools/check.py --only blender --filter=shear` |
 | Fastest loop (pure logic only) | `python3 tools/check.py --only unit` |
 | Full tool output | `python3 tools/check.py --verbose` |
 | Install Blender + dev deps only | `python3 tools/check.py --setup` |
 | Build the installable zip | `python3 tools/check.py --only package --keep-dist` (writes `dist/`) |
-| Rename the template into your add-on | `python3 tools/new_addon.py --id cool_tools --name "Cool Tools" --tagline "..." --maintainer "Name <mail>"` |
+| Rename the template into your add-on | already done (`oblique_rig`); do not run `tools/new_addon.py` again |
 | Run Blender with the add-on for a manual look (needs a display) | `blender --python-expr "import bpy;bpy.ops.preferences.extension_repo_add(...)` is clumsy; install `dist/*.zip` via Preferences > Get Extensions > Install from Disk instead |
 
 `check.py` finds Blender via `$BLENDER`, then `blender` on PATH, then
@@ -68,16 +70,16 @@ Never say a change works without a passing check. If you cannot run Blender
 ## Writing tests
 
 - `tests/unit/test_*.py`: plain pytest. Import `core/` modules by file path with
-  `load_core_module("name")` (see `test_spacing.py`), never through `bpy`.
+  `load_core_module("name")` (see `test_oblique.py`), never through `bpy`.
 - `tests/blender/test_*.py`: pytest running inside Blender with the add-on
   already enabled. Fixtures from `conftest.py`:
-  - `addon`: the live package (`addon.operators.MY_ADDON_OT_space_evenly`).
-    Never hard-code `bl_ext.dev.my_addon`; read `ADDON_MODULE` from the environment.
+  - `addon`: the live package (`addon.operators.OBLIQUE_RIG_OT_build`).
+    Never hard-code `bl_ext.dev.oblique_rig`; read `ADDON_MODULE` from the environment.
   - `clean_scene` (autouse): wipes datablocks and resets the add-on's settings
     between tests without reloading a file.
   - `make_object(name, location, select)`: an empty linked to the scene collection.
   - `recording_layout`: a fake `UILayout` so `Panel.draw()` can be executed.
-- Call operators as `bpy.ops.my_addon.space_evenly()` and assert on
+- Call operators as `bpy.ops.oblique_rig.build()` and assert on
   `{"FINISHED"}` plus the resulting data. Check `poll()` separately.
 - Any `Traceback`, RNA `Error:` or `register_class` warning printed during a test
   fails that test even when its assertions pass.
@@ -110,8 +112,9 @@ Never say a change works without a passing check. If you cannot run Blender
 src/<id>/                   the extension package (this is what gets zipped)
   blender_manifest.toml     id, version, blender_version_min, license, permissions
   __init__.py               register()/unregister(): ordered CLASSES tuple only
-  core/                     pure Python logic; no bpy allowed
-  operators.py              thin operators + keymaps
+  core/                     pure Python, no bpy: shear maths (oblique.py), mesh primitives (primitives.py)
+  rig.py                    Blender-facing builders: node group, camera, render settings
+  operators.py              thin operators: build, add_calibration, remove
   properties.py             PropertyGroup + the one PointerProperty on Scene
   ui.py                     panels/menus, draw() only
   preferences.py            AddonPreferences keyed by __package__
@@ -123,7 +126,7 @@ tools/check.py              the one command to verify the project
 tools/blender_bootstrap.py  runs inside Blender: isolate prefs, mount src/ as a repo, run pytest
 tools/lint_addon.py         Blender-specific static rules (BA001-BA013)
 tools/install_blender.sh    downloads the pinned Blender into ~/.cache/blender
-tools/new_addon.py          renames the template into your add-on
+tools/new_addon.py          renames the template into an add-on (already run for oblique_rig)
 docs/pitfalls.md            why each rule and convention exists, with sources
 docs/testing.md             what headless Blender can and cannot verify
 .github/workflows/          ci.yml (4.5 LTS + 5.2 LTS matrix), release.yml (zip on tag)

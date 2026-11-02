@@ -1,11 +1,11 @@
 schema_version = "1.0.0"
 
 # Unique identifier; must match this directory's name. Lowercase, underscores.
-id = "my_addon"
+id = "oblique_rig"
 version = "0.1.0"
-name = "My Addon"
-tagline = "Template add-on with a headless test loop"
-maintainer = "Your Name <you@example.com>"
+name = "Oblique Rig"
+tagline = "Build a 2:1 oblique projection rig for pixel art guides"
+maintainer = "Shadoku <shadoku@gmail.com>"
 type = "add-on"
 
 # Supported Blender range. 4.5 LTS and 5.2 LTS are what CI runs.
@@ -13,9 +13,9 @@ blender_version_min = "4.5.0"
 
 # SPDX identifiers; add-ons that import bpy and are distributed must be GPL-compatible.
 license = ["SPDX:GPL-3.0-or-later"]
-copyright = ["2026 Your Name"]
+copyright = ["2026 Shadoku"]
 
-# Optional: website = "https://example.com/my_addon"
+# Optional: website = "https://example.com/oblique_rig"
 # Optional: tags = ["Object"]  (must come from Blender's fixed tag list)
 # Optional: platforms = ["windows-x64", "macos-arm64", "linux-x64"]
 # Optional: wheels = ["./wheels/some_dep-1.0-py3-none-any.whl"]

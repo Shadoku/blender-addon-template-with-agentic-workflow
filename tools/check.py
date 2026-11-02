@@ -13,7 +13,7 @@ Stages (in order):
 Usage:
   python3 tools/check.py                  # everything
   python3 tools/check.py --only blender   # one stage
-  python3 tools/check.py --filter=spacing # pytest -k expression for unit and blender
+  python3 tools/check.py --filter=shear   # pytest -k expression for unit and blender
   python3 tools/check.py --verbose        # full tool output for every stage
   python3 tools/check.py --setup          # only install Blender + dev deps, then exit
 

@@ -24,18 +24,32 @@ def test_disable_then_enable_round_trip(addon) -> None:
             assert not hasattr(bpy.types, cls.__name__), f"{cls.__name__} still registered after disable"
         assert not hasattr(bpy.types.Scene, scene_attr), "Scene property not deleted in unregister()"
         assert handler not in bpy.app.handlers.load_post, "load_post handler left behind"
-        kc = bpy.context.window_manager.keyconfigs.addon
-        if kc is not None and "3D View" in kc.keymaps:
-            idnames = [kmi.idname for kmi in kc.keymaps["3D View"].keymap_items]
-            assert addon.operators.MY_ADDON_OT_space_evenly.bl_idname not in idnames, (
-                "keymap item left behind"
-            )
     finally:
         assert addon_utils.enable(ADDON_MODULE, default_set=True) is not None, "re-enable failed"
 
     assert hasattr(bpy.types.Scene, scene_attr)
     assert handler in bpy.app.handlers.load_post
-    assert bpy.ops.my_addon.space_evenly.idname_py() == "my_addon.space_evenly"
+    for idname in ("build", "add_calibration", "remove"):
+        assert hasattr(bpy.types, f"OBLIQUE_RIG_OT_{idname}"), idname
+        assert getattr(bpy.ops.oblique_rig, idname).idname_py() == f"oblique_rig.{idname}"
+
+
+def test_expected_classes(addon) -> None:
+    names = {cls.__name__ for cls in addon.CLASSES}
+    assert names == {
+        "OBLIQUE_RIG_Preferences",
+        "OBLIQUE_RIG_Settings",
+        "OBLIQUE_RIG_OT_build",
+        "OBLIQUE_RIG_OT_add_calibration",
+        "OBLIQUE_RIG_OT_remove",
+        "OBLIQUE_RIG_PT_sidebar",
+    }
+
+
+def test_build_works_after_round_trip(addon) -> None:
+    assert addon_utils.disable(ADDON_MODULE, default_set=True) is None
+    assert addon_utils.enable(ADDON_MODULE, default_set=True) is not None
+    assert bpy.ops.oblique_rig.build() == {"FINISHED"}
 
 
 def test_handler_is_persistent(addon) -> None:

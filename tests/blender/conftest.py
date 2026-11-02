@@ -18,7 +18,7 @@ if ADDON_MODULE is None:
 
 @pytest.fixture
 def addon() -> ModuleType:
-    """The live add-on package, e.g. ``addon.operators.MY_ADDON_OT_space_evenly``."""
+    """The live add-on package, e.g. ``addon.operators.OBLIQUE_RIG_OT_build``."""
     return sys.modules[ADDON_MODULE]
 
 
@@ -47,6 +47,13 @@ def _reset_settings(addon: ModuleType) -> None:
 def _wipe_data() -> None:
     for ob in list(bpy.data.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
+    scene_children = bpy.context.scene.collection.children
+    for coll in list(scene_children):
+        scene_children.unlink(coll)
+    for coll in list(bpy.data.collections):
+        bpy.data.collections.remove(coll)
+    for group in list(bpy.data.node_groups):
+        bpy.data.node_groups.remove(group)
     for collection in (
         bpy.data.meshes,
         bpy.data.materials,

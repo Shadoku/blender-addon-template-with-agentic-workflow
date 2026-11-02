@@ -1,69 +1,130 @@
-# Blender Add-on Template with an Agentic Workflow
+# Oblique Rig
 
-A starting point for Blender extensions (Blender 4.5 LTS through 5.2 LTS) built
-for development with an AI coding assistant such as Claude Code. One command,
-`python3 tools/check.py`, lints the code, runs unit tests, runs tests inside a
-headless Blender with the add-on loaded as a real extension, then builds the
-zip and installs it into a throw-away profile. It ends with `CHECK: PASS` or
-`CHECK: FAIL`, so the assistant (or you) can verify every change without
-opening Blender.
+A Blender extension (Blender 4.5 LTS through 5.2 LTS) that builds a 2:1
+oblique projection rig for drawing pixel-art guides. Model or link your assets
+in 3D, look through the rig's camera, and render a flat, unfiltered reference
+to paint over.
+
+## Why an oblique projection
+
+In an oblique (cavalier or cabinet) projection the front of every object is
+drawn face-on at its true shape: squares stay square, horizontals stay
+horizontal, verticals stay vertical. Only the depth axis recedes, along a fixed
+diagonal. With a 2:1 slope (two pixels across, one up) that diagonal is the
+clean pixel staircase pixel artists already use, so edges in the guide match
+the lines you would draw by hand.
+
+Blender's cameras cannot produce this directly: an orthographic camera gives
+axonometric views (isometric, dimetric), never an undistorted front face plus
+a slanted depth axis. The rig gets there by shearing the scene instead of the
+camera:
+
+    X' = X + a*Y,   Z' = Z + b*Y,   Y' = Y
+    (a, b) = Depth Scale * normalize(Slope Run, Slope Rise)
+
+A straight-on orthographic camera looking along +Y then sees world X as screen
+x and world Z as screen y, with depth pushed up and to the right. Y is left
+untouched, so depth sorting and occlusion stay correct.
+
+## What it builds
+
+- **`Oblique_Source` collection**: where your assets go. It is hidden from
+  renders; only the sheared copy renders.
+- **`Oblique Rig` object** with a Geometry Nodes modifier (node group
+  `ObliqueShear`): Collection Info pulls in the source collection, Transform
+  Geometry applies the shear matrix, Realize Instances turns the result into a
+  real mesh you can apply or export.
+- **`Oblique Camera`**: orthographic, facing +Y, with its ortho scale sized so
+  one Blender unit is exactly *Pixels per Unit* render pixels. Set as the scene
+  camera.
+- **`Oblique Sun`**: a sun lamp so shapes read in the render.
+- **Flat render settings**: EEVEE with one sample, no pixel filter, transparent
+  film, RGBA output, Standard view transform, resolution from the settings.
+- **Calibration objects** (optional): a 1-unit cube at y=0, a second one 3
+  units deep at y=3, and a 6x5 floor plane, all in the source collection. The
+  back cube should sit up and to the right of the front one along the chosen
+  slope.
+
+## Install
+
+1. Get the zip: a release asset, or build it with
+   `python3 tools/check.py --only package --keep-dist` (writes `dist/oblique_rig-<version>.zip`).
+2. In Blender: Edit > Preferences > Get Extensions, the drop-down at the top
+   right > Install from Disk, pick the zip.
+
+## Use
+
+1. In the 3D View press N and open the **Oblique Rig** tab.
+2. Adjust the settings (below) and press **Build Rig**.
+3. Press **Add Calibration Objects** to check the slope, if you like.
+4. Put your assets into `Oblique_Source`, or link them into it.
+5. Press Numpad 0 to look through `Oblique Camera`; render with F12.
+
+**Build Rig** is safe to press again: it updates the existing rig, camera,
+lamp and render settings from the panel and never duplicates them. The shear
+inputs also appear on the rig's `Oblique` modifier for quick experiments, but
+the next Build Rig resets them to the panel values.
+
+**Remove Rig** deletes the rig object, camera, sun and node group. Its
+operator option also removes the source collection and the calibration
+objects; without it your assets are left alone.
+
+### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| Pixels per Unit | 16 | Render pixels per Blender unit; sets the camera's ortho scale (`max(res_x, res_y) / ppu`). |
+| Resolution X / Y | 320 / 200 | Render size in pixels. |
+| Slope Run / Slope Rise | 2 / 1 | Direction of the depth axis on screen. 2 / 1 is the pixel-art 2:1 slope; 1 / 1 gives 45 degrees. |
+| Depth Scale | 0.6 | Length of one unit of depth relative to its true length. 1.0 = cavalier (true depth), about 0.5 = cabinet (squashed). |
+| Camera Height | 0.35 | Where the camera sits above z=0, as a fraction of the frame height; raises or lowers the horizon of the guide. |
+
+The add-on's preferences have one option: whether Build Rig reports a status
+message.
+
+## Compatibility
+
+Blender 4.5 LTS to 5.2 LTS. Geometry Nodes and render-engine identifiers
+changed between these versions; the add-on handles both (see
+`docs/pitfalls.md`), and every change is tested on both.
+
+## Development
+
+This repository was created from a Blender add-on template built for
+development with an AI coding assistant, and still carries its tooling. One
+command lints the code, runs unit tests, runs tests inside a headless Blender
+with the add-on loaded as a real extension, then builds the zip and installs it
+into a throw-away profile:
 
 ```
 $ python3 tools/check.py
 blender: /home/me/.cache/blender/5.2.3/blender
-[PASS] lint (0.9s)
-    LINT: ruff, lint_addon, extension validate all passed
-[PASS] unit (0.3s)
-    TESTS: 23 passed in 0.03s
-[PASS] blender (0.9s)
-    BOOTSTRAP: Blender 5.2.3 LTS Python 3.13.13 background=True
-    TESTS: 15 passed, 0 failed, 0 skipped
-[PASS] package (2.4s)
-    PACKAGE: my_addon installs, enables, disables cleanly and re-enables
-    PACKAGE: built dist/my_addon-0.1.0.zip (7005 bytes)
+[PASS] lint
+[PASS] unit
+[PASS] blender
+[PASS] package
+    PACKAGE: oblique_rig installs, enables, disables cleanly and re-enables
 
 CHECK: PASS
 ```
 
-## Quick start
+`bash tools/install_blender.sh` downloads the pinned Blender
+(`.blender-version`) into `~/.cache/blender`; `BLENDER=/path/to/blender
+python3 tools/check.py` runs the check against another version (CI runs 4.5
+LTS and 5.2 LTS). Python 3.9+ on the host is enough; pytest and ruff are
+installed with Blender's bundled Python into `.blender-deps/`.
 
-```bash
-git clone https://github.com/Shadoku/blender-addon-template-with-agentic-workflow my_cool_addon
-cd my_cool_addon
-python3 tools/new_addon.py --id cool_tools --name "Cool Tools" \
-    --tagline "Does cool things to objects" --maintainer "Your Name <you@example.com>"
-bash tools/install_blender.sh      # downloads the pinned Blender into ~/.cache/blender (Linux/macOS)
-python3 tools/check.py             # must end with CHECK: PASS
-```
-
-Then describe the first feature to your assistant. `CLAUDE.md` tells it to
-write a test first, implement, and run the check until it passes.
-
-Requirements: Python 3.9+ on the host to run `check.py`; `curl`, `tar` (Linux)
-or `hdiutil` (macOS) for the installer. On Windows install Blender yourself and
-set `BLENDER=C:\...\blender.exe`. Everything else (pytest, ruff) is installed
-by `check.py` with Blender's bundled Python into `.blender-deps/`.
-
-## What is in the box
-
-- `src/my_addon/`: a small but complete extension (manifest, PropertyGroup,
-  operator with undo, sidebar panel, preferences, a persistent handler, a keymap)
-  that demonstrates the conventions. The maths lives in `core/`, which never
-  imports `bpy` and is unit-tested in milliseconds.
-- `tests/`: unit tests, Blender tests (operator behaviour, property defaults,
-  enable/disable round trip, panel `draw()` with a recording layout), and one
-  fixture per lint rule.
-- `tools/check.py`, `tools/blender_bootstrap.py`, `tools/lint_addon.py`: the
-  verification loop. The linter encodes 13 Blender-specific rules, including a
-  list of API that was removed between 2.80 and 5.2 and that language models
-  keep producing.
-- `.github/workflows/`: CI on 4.5 LTS and 5.2 LTS; a release workflow that
-  attaches the zip when you push a `vX.Y.Z` tag.
-- `.claude/`: a session hook that installs Blender in Claude Code on the web,
-  and the `blender-addon` skill that scaffolds new projects from this template.
-- `docs/pitfalls.md`: the common ways add-on code goes wrong (for humans and
-  for agents) and how this template guards against each. `docs/testing.md`:
-  what headless Blender can and cannot verify.
+- `src/oblique_rig/core/`: the shear maths and mesh primitives, no `bpy`,
+  unit-tested in milliseconds.
+- `src/oblique_rig/rig.py`: the Blender-facing builders (node group, camera,
+  render settings); `operators.py`, `ui.py`, `properties.py` stay thin.
+- `tests/blender/`: operator tests, including one that evaluates the rig
+  through the depsgraph and checks the sheared vertices.
+- `CLAUDE.md`: the rules and loop for an AI assistant; `docs/pitfalls.md`
+  and `docs/testing.md`: why the conventions exist and what headless Blender
+  can verify.
+- `.claude/skills/blender-addon/`: the reusable template skill
+  (`tools/new_addon.py` was already run for this add-on).
 
 ## Credits and license
 

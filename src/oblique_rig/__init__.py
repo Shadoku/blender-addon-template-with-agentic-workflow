@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""My Addon: entry point.
+"""Oblique Rig: entry point.
 
 This module only wires things together. Rules and maths live in ``core/``
-(no bpy, unit-tested in milliseconds); Blender-facing code lives in the thin
-``operators``, ``properties``, ``ui``, ``preferences`` and ``handlers`` modules.
+(no bpy, unit-tested in milliseconds); Blender-facing code lives in ``rig`` (the
+builders) and the thin ``operators``, ``properties``, ``ui``, ``preferences``
+and ``handlers`` modules.
 
 Registration order matters: PropertyGroups before the PointerProperty that uses
 them, operators before the panels that reference them. ``unregister`` runs the
@@ -29,11 +30,9 @@ def register() -> None:
         bpy.utils.register_class(cls)
     properties.register_scene_properties()
     handlers.register()
-    operators.register_keymaps()
 
 
 def unregister() -> None:
-    operators.unregister_keymaps()
     handlers.unregister()
     lifecycle.cleanup()
     properties.unregister_scene_properties()

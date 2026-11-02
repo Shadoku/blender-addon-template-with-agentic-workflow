@@ -54,7 +54,7 @@ operators read `context.selected_objects` / `bpy.data` directly, and
 
 An extension imports as `bl_ext.<repository>.<id>`; the repository part
 differs per installation (`user_default`, `blender_org`, a custom repo, our
-`dev`). `import my_addon` or `preferences.addons["my_addon"]` raises
+`dev`). `import oblique_rig` or `preferences.addons["oblique_rig"]` raises
 `ModuleNotFoundError` / `KeyError` for users even though it worked in your
 checkout. Guardrails: BA004 (relative imports only), BA006 (`__package__` for
 preferences), and the `package` stage installs the real zip.
@@ -164,6 +164,33 @@ check `bpy.app.online_access` before connecting.
   read it from the class.
 - `@persistent` sets `fn._bpy_persistent = None`; test with `hasattr`, not
   `getattr(..., False)`.
+
+## 15. Node properties that became sockets (supporting two LTS versions)
+
+Geometry Nodes keeps turning node *properties* into *menu sockets* so they can
+be driven from the node tree. Transform Geometry is the one this add-on hits:
+
+| | Blender 4.5 LTS | Blender 5.x |
+|---|---|---|
+| Matrix mode | `node.mode = "MATRIX"` (enum `COMPONENTS`/`MATRIX`), no `Mode` input | no `mode` attribute; `node.inputs["Mode"].default_value = "Matrix"` |
+| EEVEE engine id | `BLENDER_EEVEE_NEXT` | `BLENDER_EEVEE` |
+
+Code written for 4.x raises
+`AttributeError: 'GeometryNodeTransform' object has no attribute 'mode'` on
+5.x; code written for 5.x raises `KeyError` on the missing socket in 4.5. Note
+the different spelling: the property takes the upper-case enum identifier,
+the menu socket the display name. Expect the same for other nodes whose
+drop-downs became menu sockets; probe both binaries rather than trusting memory.
+
+Guardrails: one small shim per change in `rig.py`
+(`set_transform_mode_matrix` checks `"Mode" in node.inputs` and falls back to
+`node.mode`; `set_eevee_engine` tries `BLENDER_EEVEE_NEXT`, then
+`BLENDER_EEVEE`), and the check is run on both ends of the supported range:
+`python3 tools/check.py` for the pinned 5.2 and
+`BLENDER=~/.cache/blender/4.5.3/blender python3 tools/check.py` for 4.5 (CI
+runs the same matrix). `tests/blender/test_shear.py` evaluates the node tree,
+so a node silently left in Components mode fails a test instead of rendering
+an unsheared guide.
 
 ## Sources
 
