@@ -51,5 +51,32 @@ def test_recreates_only_missing(addon) -> None:
     assert {ob.name for ob in bpy.data.objects} == {o.CALIB_FRONT, o.CALIB_BACK, o.CALIB_FLOOR}
 
 
+def test_two_flat_materials(addon) -> None:
+    o = addon.core.oblique
+    r = addon.rig
+    bpy.ops.oblique_rig.add_calibration()
+
+    cube_mat = bpy.data.materials[r.CALIB_CUBE_MATERIAL]
+    floor_mat = bpy.data.materials[r.CALIB_FLOOR_MATERIAL]
+    assert cube_mat != floor_mat
+    assert tuple(cube_mat.diffuse_color) == pytest.approx(r.CALIB_CUBE_COLOR)
+    assert tuple(floor_mat.diffuse_color) == pytest.approx(r.CALIB_FLOOR_COLOR)
+    assert r.CALIB_CUBE_COLOR == pytest.approx((0.85, 0.35, 0.2, 1.0))
+    assert r.CALIB_FLOOR_COLOR == pytest.approx((0.3, 0.6, 0.3, 1.0))
+    assert list(bpy.data.objects[o.CALIB_FRONT].data.materials) == [cube_mat]
+    assert list(bpy.data.objects[o.CALIB_BACK].data.materials) == [cube_mat]
+    assert list(bpy.data.objects[o.CALIB_FLOOR].data.materials) == [floor_mat]
+
+
+def test_materials_are_reused(addon) -> None:
+    o = addon.core.oblique
+    bpy.ops.oblique_rig.add_calibration()
+    bpy.data.objects.remove(bpy.data.objects[o.CALIB_FRONT])
+    bpy.ops.oblique_rig.add_calibration()
+    assert sorted(m.name for m in bpy.data.materials) == sorted(
+        [addon.rig.CALIB_CUBE_MATERIAL, addon.rig.CALIB_FLOOR_MATERIAL]
+    )
+
+
 def test_is_undoable(addon) -> None:
     assert addon.operators.OBLIQUE_RIG_OT_add_calibration.bl_options == {"REGISTER", "UNDO"}

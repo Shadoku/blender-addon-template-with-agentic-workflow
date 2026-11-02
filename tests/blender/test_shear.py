@@ -19,6 +19,10 @@ def _centroid(points):
     return tuple(sum(p[i] for p in points) / n for i in range(3))
 
 
+def _shear(addon) -> tuple[float, float]:
+    return addon.properties.params_from_settings(addon.properties.get_settings(bpy.context)).shear()
+
+
 def _build_with_calibration(addon):
     o = addon.core.oblique
     assert bpy.ops.oblique_rig.build() == {"FINISHED"}
@@ -29,7 +33,8 @@ def _build_with_calibration(addon):
 def test_back_cube_is_shifted_by_depth(addon) -> None:
     o = addon.core.oblique
     rig = _build_with_calibration(addon)
-    a, b = o.shear_coefficients(2.0, 1.0, 0.6)
+    a, b = _shear(addon)
+    assert (a, b) == (1.0, 0.5), "pixel-exact default: 16 px right, 8 px up at 16 px per unit"
 
     verts = _evaluated_vertices(rig)
     assert len(verts) == 8 + 8 + 4, "two cubes and a floor, realized into one mesh"
@@ -49,7 +54,7 @@ def test_back_cube_is_shifted_by_depth(addon) -> None:
 def test_every_vertex_matches_core_shear(addon) -> None:
     o = addon.core.oblique
     rig = _build_with_calibration(addon)
-    a, b = o.shear_coefficients(2.0, 1.0, 0.6)
+    a, b = _shear(addon)
 
     expected = []
     for ob in bpy.data.collections[o.SOURCE_COLLECTION].all_objects:
@@ -67,6 +72,7 @@ def test_every_vertex_matches_core_shear(addon) -> None:
 def test_shear_follows_settings(addon) -> None:
     o = addon.core.oblique
     settings = addon.properties.get_settings(bpy.context)
+    settings.pixel_exact = False
     settings.slope_run = 1.0
     settings.slope_rise = 1.0
     settings.depth_scale = 1.0
@@ -77,8 +83,18 @@ def test_shear_follows_settings(addon) -> None:
     assert _centroid(back) == pytest.approx(o.shear_point((0.0, 3.5, 0.5), a, b), abs=1e-5)
 
 
+def test_float_mode_matches_shear_coefficients(addon) -> None:
+    o = addon.core.oblique
+    addon.properties.get_settings(bpy.context).pixel_exact = False
+    rig = _build_with_calibration(addon)
+    a, b = o.shear_coefficients(2.0, 1.0, 0.6)
+    back = [v for v in _evaluated_vertices(rig) if 3.0 - 1e-4 <= v[1] <= 4.0 + 1e-4]
+    assert _centroid(back) == pytest.approx(o.shear_point((0.0, 3.5, 0.5), a, b), abs=1e-5)
+
+
 def test_zero_depth_is_identity(addon) -> None:
     settings = addon.properties.get_settings(bpy.context)
+    settings.pixel_exact = False
     settings.depth_scale = 0.0
     rig = _build_with_calibration(addon)
     back = [v for v in _evaluated_vertices(rig) if 3.0 - 1e-4 <= v[1] <= 4.0 + 1e-4]

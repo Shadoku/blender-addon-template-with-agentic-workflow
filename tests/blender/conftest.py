@@ -83,6 +83,42 @@ def make_object():
     return _make
 
 
+@pytest.fixture
+def rig_vertices(addon):
+    """World-space vertices of the rig's evaluated mesh (empty list when there is no geometry)."""
+
+    def _vertices() -> list[tuple[float, float, float]]:
+        rig = bpy.data.objects[addon.core.oblique.RIG_NAME]
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        rig_eval = rig.evaluated_get(depsgraph)
+        mesh = rig_eval.to_mesh()
+        try:
+            return [tuple(rig_eval.matrix_world @ v.co) for v in mesh.vertices]
+        finally:
+            rig_eval.to_mesh_clear()
+
+    return _vertices
+
+
+@pytest.fixture
+def source_box(addon):
+    """A box mesh object spanning ``lo``..``hi`` (world space) linked into the source collection."""
+
+    def _make(name: str, lo, hi) -> bpy.types.Object:
+        x0, y0, z0 = lo
+        x1, y1, z1 = hi
+        verts = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
+        faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        ob = bpy.data.objects.new(name, mesh)
+        addon.rig.get_or_create_collection(bpy.context.scene).objects.link(ob)
+        return ob
+
+    return _make
+
+
 class RecordingLayout:
     """Stand-in for bpy.types.UILayout: records every call so draw() code can be exercised headless."""
 

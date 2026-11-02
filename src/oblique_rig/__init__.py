@@ -7,20 +7,22 @@ builders) and the thin ``operators``, ``properties``, ``ui``, ``preferences``
 and ``handlers`` modules.
 
 Registration order matters: PropertyGroups before the PointerProperty that uses
-them, operators before the panels that reference them. ``unregister`` runs the
+them, operators before the panels that reference them. ``operators_render`` holds the
+render operators (Render Guides, Render Turnaround). ``unregister`` runs the
 exact reverse so a disable -> enable round trip leaves nothing behind
 (tests/blender/test_register.py checks that).
 """
 
 import bpy
 
-from . import handlers, lifecycle, operators, preferences, properties, ui
+from . import handlers, lifecycle, operators, operators_render, preferences, properties, ui
 
 # Every Blender class the add-on registers, in dependency order.
 CLASSES: tuple[type, ...] = (
     *preferences.CLASSES,
     *properties.CLASSES,
     *operators.CLASSES,
+    *operators_render.CLASSES,
     *ui.CLASSES,
 )
 

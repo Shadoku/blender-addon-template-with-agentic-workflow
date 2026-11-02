@@ -21,9 +21,9 @@ copyright = ["2026 Shadoku"]
 # Optional: wheels = ["./wheels/some_dep-1.0-py3-none-any.whl"]
 
 # Declare what the add-on needs; tools/lint_addon.py checks imports against this.
-# [permissions]
-# network = "Fetch presets from the project website"
-# files = "Import and export preset files"
+# Render Guides / Render Turnaround write PNG files to the folder set in the panel.
+[permissions]
+files = "Write guide renders to the chosen output folder"
 
 [build]
 paths_exclude_pattern = [

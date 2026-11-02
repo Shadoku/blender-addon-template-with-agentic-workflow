@@ -82,7 +82,7 @@ def test_added_object_appears_sheared_in_rig(addon) -> None:
     bpy.ops.oblique_rig.build()
     _mesh_object(addon, "Asset", (0.0, 2.0, 0.0))  # after placement: y 0..2, z 0..2
     bpy.ops.oblique_rig.add_selected(ground_by_bottom=True)
-    a, b = o.shear_coefficients(2.0, 1.0, 0.6)
+    a, b = addon.properties.params_from_settings(addon.properties.get_settings(bpy.context)).shear()
 
     rig = bpy.data.objects[o.RIG_NAME]
     depsgraph = bpy.context.evaluated_depsgraph_get()

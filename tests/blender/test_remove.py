@@ -35,6 +35,8 @@ def test_remove_everything(addon) -> None:
     assert bpy.ops.oblique_rig.remove(include_source=True) == {"FINISHED"}
     assert _leftovers(o) == {}
     assert bpy.context.scene.camera is None
+    assert addon.rig.CALIB_CUBE_MATERIAL not in bpy.data.materials
+    assert addon.rig.CALIB_FLOOR_MATERIAL not in bpy.data.materials
 
 
 def test_remove_keeps_source_by_default(addon) -> None:
