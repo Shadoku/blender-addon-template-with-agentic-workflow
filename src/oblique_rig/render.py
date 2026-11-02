@@ -166,33 +166,6 @@ def _id_color(index: int) -> tuple[float, float, float, float]:
     return r, g, b, 1.0
 
 
-def merge_near_colors(rgba: np.ndarray, tolerance: int = 1) -> np.ndarray:
-    """Snap colours within ``tolerance`` per channel to the most frequent one among them.
-
-    Workbench's flat colours can differ by one step between pixels of the same
-    face (Blender 4.5), which would otherwise turn every face into a patchwork
-    of labels for :func:`core.outline.label_image`.
-    """
-    out = np.array(rgba, dtype=np.uint8, copy=True)
-    opaque = out[..., 3] > 0
-    if not opaque.any():
-        return out
-    colors, inverse, counts = np.unique(out[opaque], axis=0, return_inverse=True, return_counts=True)
-    reps: list[np.ndarray] = []
-    mapping = np.empty(len(colors), dtype=np.int64)
-    for i in np.argsort(-counts, kind="stable"):
-        c = colors[i].astype(np.int64)
-        for j, rep in enumerate(reps):
-            if np.abs(c - rep).max() <= tolerance:
-                mapping[i] = j
-                break
-        else:
-            mapping[i] = len(reps)
-            reps.append(c)
-    out[opaque] = np.array(reps, dtype=np.uint8)[mapping[inverse.reshape(-1)]]
-    return out
-
-
 class _IdMaterials:
     """Give every source object's data one temporary flat-coloured material; undo on exit.
 
@@ -343,7 +316,7 @@ def _outline_mask(settings, flat: np.ndarray, ids: np.ndarray | None) -> np.ndar
     if settings.outline_inner_px > 0 and settings.inner_lines != "NONE":
         source = ids if settings.inner_lines == "OBJECTS" else flat
         if source is not None:
-            labels = outline.label_image(merge_near_colors(source))
+            labels = outline.label_image(outline.merge_near_colors(source))
             mask = mask | outline.inner_lines(labels, settings.outline_inner_px, corners=corners)
     return mask
 

@@ -50,7 +50,7 @@ def update_readouts(context: bpy.types.Context, rig_object: bpy.types.Object) ->
     else:
         width, height = oblique.footprint_px(bounds[0], bounds[1], params.pixels_per_unit)
         settings.last_footprint = f"{width} x {height} px"
-    pairs = overlap.overlapping_pairs(rig.source_rects(context.scene, params))
+    pairs = overlap.overlapping_pairs(rig.source_boxes(context.scene))
     settings.last_warnings = overlap.format_warnings(pairs[:MAX_WARNINGS])
 
 

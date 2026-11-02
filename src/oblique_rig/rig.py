@@ -62,7 +62,7 @@ CALIB_MATERIALS = {
     CALIB_FLOOR: (CALIB_FLOOR_MATERIAL, CALIB_FLOOR_COLOR),
 }
 
-# Object types whose bounding box describes real geometry (for the overlap check).
+# Object types whose bounding box describes real geometry (for the interpenetration check).
 GEOMETRY_TYPES = frozenset({"MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD", "VOLUME"})
 
 RIG_OWNED = frozenset({RIG_NAME, CAMERA_NAME, SUN_NAME})
@@ -430,54 +430,34 @@ def sheared_bounds(
     return oblique.bounds(points)
 
 
-def _rotate_z(point: tuple[float, float, float], angle: float) -> tuple[float, float, float]:
-    c, s = math.cos(angle), math.sin(angle)
-    x, y, z = point
-    return c * x - s * y, s * x + c * y, z
+def source_boxes(
+    scene: bpy.types.Scene,
+) -> list[tuple[str, tuple[float, float, float], tuple[float, float, float]]]:
+    """Per source object: ``(name, (xmin, ymin, zmin), (xmax, ymax, zmax))`` in world space.
 
-
-def source_rects(
-    scene: bpy.types.Scene, params: RigParams
-) -> list[tuple[str, tuple[float, float, float, float], tuple[float, float]]]:
-    """Per source object: ``(name, screen rect in pixels, (y_min, y_max) depth range)``.
-
-    Each object's evaluated world bounding-box corners are turned by
-    ``params.direction`` and seated like the node group does (seat computed
-    from the corners, which matches the mesh exactly at multiples of 90
-    degrees), then projected through the shear and the camera. Objects without
-    geometry (empties, cameras, lights) are skipped. Sorted by name so the
-    warnings read the same on every run. Feed the result to
-    ``core.overlap.overlapping_pairs``.
+    The box is the axis-aligned bound of the evaluated object's bounding-box
+    corners after its world matrix (modifiers and parents included), before
+    the rig turns, seats or shears anything: interpenetration does not depend
+    on the facing. Objects without geometry (empties, cameras, lights) are
+    skipped. Sorted by name so the warnings read the same on every run. Feed
+    the result to ``core.overlap.overlapping_pairs``. ``scene`` must be the
+    context scene (its depsgraph is evaluated).
     """
+    if scene != bpy.context.scene:
+        raise ValueError(f"source_boxes needs the context scene, got {scene.name!r}")
     source = bpy.data.collections.get(SOURCE_COLLECTION)
     if source is None:
         return []
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    turned: list[tuple[str, list[tuple[float, float, float]]]] = []
+    boxes = []
     for ob in sorted(source.all_objects, key=lambda ob: ob.name):
         if ob.type not in GEOMETRY_TYPES:
             continue
         ob_eval = ob.evaluated_get(depsgraph)
         matrix = ob_eval.matrix_world
-        corners = [_rotate_z(tuple(matrix @ Vector(c)), params.direction) for c in ob_eval.bound_box]
-        turned.append((ob.name, corners))
-    if not turned:
-        return []
-
-    if params.auto_seat:
-        lo, hi = oblique.bounds([p for _, corners in turned for p in corners])
-        dx, dy = -(lo[0] + hi[0]) / 2.0, -lo[1]
-        turned = [(name, [(x + dx, y + dy, z) for x, y, z in corners]) for name, corners in turned]
-
-    a, b = params.shear()
-    cam_x, _, cam_z = params.camera()
-    res_x, res_y = params.effective_resolution()
-    rects = []
-    for name, corners in turned:
-        rect = oblique.screen_rect(corners, a, b, params.pixels_per_unit, cam_x, cam_z, res_x, res_y)
-        depth = (min(p[1] for p in corners), max(p[1] for p in corners))
-        rects.append((name, rect, depth))
-    return rects
+        lo, hi = oblique.bounds([tuple(matrix @ Vector(c)) for c in ob_eval.bound_box])
+        boxes.append((ob.name, lo, hi))
+    return boxes
 
 
 # --------------------------------------------------------------------------- viewport toggle

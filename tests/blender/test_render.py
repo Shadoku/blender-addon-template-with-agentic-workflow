@@ -143,7 +143,7 @@ def test_ids_pass_restores_materials(guides, addon) -> None:
 
 def test_material_labels_ignore_rounding_noise(guides, addon) -> None:
     """MATERIALS inner lines label the flat pass: one label per material, whatever the GPU's +-1 noise."""
-    labels = addon.core.outline.label_image(addon.render.merge_near_colors(guides["images"]["flat"]))
+    labels = addon.core.outline.label_image(addon.core.outline.merge_near_colors(guides["images"]["flat"]))
     assert set(np.unique(labels).tolist()) - {-1} == {0, 1}, "cube material and floor material"
 
 
@@ -152,7 +152,7 @@ def test_merge_near_colors_keeps_the_most_frequent(addon) -> None:
     image[0, :3] = (108, 144, 203, 255)
     image[0, 3] = (108, 145, 203, 255)
     image[0, 4] = (20, 30, 40, 255)
-    merged = addon.render.merge_near_colors(image)
+    merged = addon.core.outline.merge_near_colors(image)
     assert merged[0, :4].tolist() == [[108, 144, 203, 255]] * 4
     assert merged[0, 4].tolist() == [20, 30, 40, 255]
     assert merged[0, 5].tolist() == [0, 0, 0, 0]
@@ -168,7 +168,7 @@ def test_silhouette_is_black_where_flat_is_opaque(guides) -> None:
 def test_outline_matches_core(guides, addon) -> None:
     core_outline = addon.core.outline
     flat, ids, drawn = guides["images"]["flat"], guides["images"]["ids"], guides["images"]["outline"]
-    labels = core_outline.label_image(addon.render.merge_near_colors(ids))
+    labels = core_outline.label_image(addon.core.outline.merge_near_colors(ids))
     expected = core_outline.outer_outline(flat[..., 3], 1) | core_outline.inner_lines(labels, 1)
     mask = drawn[..., 3] > 0
     assert expected.sum() > 0

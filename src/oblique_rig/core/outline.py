@@ -180,6 +180,36 @@ def inner_lines(labels: np.ndarray, weight: int, corners: bool = False) -> np.nd
     return dilate(seed, (weight - 1) // 2, corners) & (lab >= 0)
 
 
+def merge_near_colors(rgba: np.ndarray, tolerance: int = 1) -> np.ndarray:
+    """Snap colours within ``tolerance`` per channel to the most frequent one among them.
+
+    Workbench's flat colours can differ by one step between pixels of the
+    same face (seen on Blender 4.5), which would otherwise turn every face
+    into a patchwork of labels for :func:`label_image`. Colours are visited
+    from most to least frequent; each joins the first kept colour within
+    ``tolerance`` on every channel, or is kept itself. Pixels with alpha 0
+    are left alone. Returns a new uint8 array; the input is not modified.
+    """
+    out = np.array(rgba, dtype=np.uint8, copy=True)
+    opaque = out[..., 3] > 0
+    if not opaque.any():
+        return out
+    colors, inverse, counts = np.unique(out[opaque], axis=0, return_inverse=True, return_counts=True)
+    reps: list[np.ndarray] = []
+    mapping = np.empty(len(colors), dtype=np.int64)
+    for i in np.argsort(-counts, kind="stable"):
+        c = colors[i].astype(np.int64)
+        for j, rep in enumerate(reps):
+            if np.abs(c - rep).max() <= tolerance:
+                mapping[i] = j
+                break
+        else:
+            mapping[i] = len(reps)
+            reps.append(c)
+    out[opaque] = np.array(reps, dtype=np.uint8)[mapping[inverse.reshape(-1)]]
+    return out
+
+
 def paint(mask: np.ndarray, color_rgba: Sequence[float]) -> np.ndarray:
     """``(h, w, 4)`` uint8 layer: ``color_rgba`` where ``mask`` is set, transparent elsewhere.
 

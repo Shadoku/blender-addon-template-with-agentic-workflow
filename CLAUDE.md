@@ -1,7 +1,9 @@
 # Oblique Rig (Blender 4.5 LTS – 5.2 LTS, extensions system)
 
 Blender extension that builds a 2:1 oblique projection rig for pixel-art guides
-(Geometry Nodes shear, pixel-grid orthographic camera, flat render settings),
+(Geometry Nodes shear, pixel-grid orthographic camera, flat render settings) and
+renders pixel-exact guide passes to PNG (flat, shaded, ids, silhouette, outline,
+grid, composite, turnaround sheets),
 set up for AI-assisted development: every change is verified by
 `python3 tools/check.py`, which runs headless without opening Blender's UI.
 Trust its output over your own reasoning about whether code works. Blender's
@@ -66,6 +68,7 @@ Never say a change works without a passing check. If you cannot run Blender
 | `[FAIL] package` + `FATAL_ERROR` from `extension build` | manifest or file layout problem | check `[build] paths_exclude_pattern` and that `id` equals the directory name |
 | `engine errors were printed (exit code was 0)` | Blender printed a traceback or RNA error during a test that still passed | the block names the test (`[during ...]`); fix the cause, do not silence it |
 | `TIMEOUT after Ns` | a test or Blender hung | look for modal operators, timers that never return `None`, or a blocking network call |
+| `Couldn't open libEGL.so.1` and Blender exits (no traceback, the run just stops) | a headless Workbench/EEVEE render without Mesa | install the Mesa packages (see the "Install Mesa" step in `.github/workflows/ci.yml`); `tests/blender/test_render.py` skips itself when EGL is absent, so this means a render ran outside it |
 
 ## Writing tests
 
@@ -112,15 +115,26 @@ Never say a change works without a passing check. If you cannot run Blender
 src/<id>/                   the extension package (this is what gets zipped)
   blender_manifest.toml     id, version, blender_version_min, license, permissions
   __init__.py               register()/unregister(): ordered CLASSES tuple only
-  core/                     pure Python, no bpy: shear maths (oblique.py), mesh primitives (primitives.py)
-  rig.py                    Blender-facing builders: node group, camera, render settings
-  operators.py              thin operators: build, add_selected, add_calibration, remove
+  core/                     pure Python (+ numpy), no bpy:
+    oblique.py              shear, pixel-exact params (RigParams), projection, fit_frame
+    primitives.py           calibration mesh vertices
+    outline.py              whole-pixel outlines, labels, merge_near_colors
+    guides.py               Bresenham lines, floor grid layer
+    compose.py              straight-alpha "over", layer stacks, sprite sheets
+    png.py                  stdlib PNG encode/decode (byte-exact output)
+    presets.py              slope and resolution presets
+    overlap.py              depth-sort warning (3D bounding-box interpenetration)
+  rig.py                    Blender-facing builders: node group, camera, render settings, bounds
+  render.py                 Workbench passes, settings guard, guide/turnaround files
+  operators.py              thin operators: build, add_selected, add_calibration, remove,
+                            fit_to_content, apply_slope_preset, apply_resolution_preset
+  operators_render.py       render_guides, render_turnaround (write files; REGISTER, no UNDO)
   properties.py             PropertyGroup + the one PointerProperty on Scene
   ui.py                     panels/menus, draw() only
   preferences.py            AddonPreferences keyed by __package__
   handlers.py / lifecycle.py   persistent handlers and the cleanup registry
 tests/unit/                 pytest, plain Python
-tests/blender/              pytest inside headless Blender
+tests/blender/              pytest inside headless Blender (test_render.py renders; skips without EGL)
 tests/lint_fixtures/        one file per lint rule; each must fail that rule
 tools/check.py              the one command to verify the project
 tools/blender_bootstrap.py  runs inside Blender: isolate prefs, mount src/ as a repo, run pytest
@@ -129,7 +143,8 @@ tools/install_blender.sh    downloads the pinned Blender into ~/.cache/blender
 tools/new_addon.py          renames the template into an add-on (already run for oblique_rig)
 docs/pitfalls.md            why each rule and convention exists, with sources
 docs/testing.md             what headless Blender can and cannot verify
-.github/workflows/          ci.yml (4.5 LTS + 5.2 LTS matrix), release.yml (zip on tag)
+docs/PLAN-oblique-rig*.md   plans for 0.1 and 0.2, with verified API facts and deviations
+.github/workflows/          ci.yml (4.5 LTS + 5.2 LTS matrix, installs Mesa for renders), release.yml (zip on tag)
 ```
 
 ## Conventions

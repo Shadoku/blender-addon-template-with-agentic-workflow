@@ -8,7 +8,7 @@
 |---|---|---|
 | `lint` | ruff check + format, `tools/lint_addon.py`, `blender --command extension validate` | ~1 s |
 | `unit` | `pytest tests/unit` under Blender's bundled Python (no bpy) | ~0.3 s |
-| `blender` | `blender -b --factory-startup --python-exit-code 1 --python tools/blender_bootstrap.py -- --mode dev` | ~1 s |
+| `blender` | `blender -b --factory-startup --python-exit-code 1 --python tools/blender_bootstrap.py -- --mode dev` | ~4 s (most of it the Workbench renders) |
 | `package` | `extension build`, `extension install-file --no-prefs` into a temp profile, bootstrap `--mode package` | ~2.5 s |
 
 The bootstrap mounts `src/` as a local extension repository called `dev`, so
@@ -23,6 +23,12 @@ test markers. `check.py` attributes every `Traceback`, RNA `Error:` and
 Every Blender process runs with `BLENDER_USER_CONFIG`, `BLENDER_USER_SCRIPTS`
 and `BLENDER_USER_EXTENSIONS` pointed at a temporary directory, so tests never
 read or write your real preferences.
+
+The `package` stage builds into the repository's `dist/` directory. Two
+`check.py` runs at the same time (say 5.2 and 4.5 in parallel) share it and
+can delete or overwrite each other's zip mid-stage, failing `package` for
+reasons that have nothing to do with the code. Run the two versions one after
+the other.
 
 ## Fixtures (tests/blender/conftest.py)
 
@@ -106,6 +112,52 @@ def test_panel_draws(addon, recording_layout):
 This proves the method runs against real context and real property names. It
 does not prove the panel looks right; nothing does, headless.
 
+### Rendered output (tests/blender/test_render.py)
+
+Workbench renders headless when libEGL is available (a GPU driver, or Mesa's
+llvmpipe on a server; CI installs Mesa). Without it Blender does not raise: it
+prints `Couldn't open libEGL.so.1` and exits, killing the whole test run. So
+the module checks first and skips itself before importing anything that
+renders:
+
+```python
+import ctypes.util
+import pytest
+
+if ctypes.util.find_library("EGL") is None:
+    pytest.skip("Workbench rendering needs libEGL (install Mesa)", allow_module_level=True)
+```
+
+A skipped module shows up in `TESTS: ... skipped`; on a machine without EGL
+the rest of the suite still runs, and the render code is simply unverified
+there (say so when reporting).
+
+The scene is small on purpose: the calibration objects at 64x48 px and 8 px
+per unit, one unit of depth = 8 px right and 4 px up. A module-scoped fixture
+calls Render Guides once with flat, ids, silhouette, outline, grid and
+composite enabled; separate tests do one turnaround (two facings) and one
+settings-guard render, five renders in all, a few seconds under llvmpipe.
+
+The assertions are pixel-exact, because the passes are meant to be traced:
+
+- exactly the enabled files exist, all 64x48;
+- the flat pass has no partially transparent pixel, and its opaque colours are
+  the two calibration materials (sRGB bytes within 1);
+- the ids pass has the same alpha as the flat pass and exactly three colours
+  (front cube, back cube, floor), and the temporary id materials are gone;
+- the outline pass equals, pixel for pixel, `core.outline.outer_outline` plus
+  `inner_lines` recomputed from the rendered flat and ids passes;
+- the grid's ground line is a full-alpha row at the row the camera maths
+  predicts;
+- the composite is opaque wherever the flat pass is, with the outline on top;
+- the turnaround sheet is exactly its frames side by side, and the render
+  settings, the rig's Direction input and the user's materials are restored.
+
+Images are read back with `render.read_rgba` (Non-Color, so `pixels` are the
+raw bytes) and compared as numpy arrays, row 0 at the bottom. The `EGL Error
+(0x3009): EGL_BAD_MATCH` lines each render prints are harmless and do not fail
+a test (see `docs/pitfalls.md`, section 16).
+
 ### Handlers and timers
 
 `lifecycle.track_handler` / `track_timer` register and record. Assert the
@@ -127,8 +179,9 @@ depends on the operator context and the active object.
   (`bpy.ops.view3d.*`, `bpy.ops.screen.*`, most modal operators). `temp_override`
   cannot help because there is no window to override with.
 - Mouse/keyboard event handling in modal operators.
-- Rendering output (Cycles/EEVEE can render headless but it is slow; keep
-  render tests out of the default check).
+- Rendering without libEGL (Workbench and EEVEE need it; the render tests
+  skip). With Mesa, Workbench renders are fast enough for the default check;
+  EEVEE spends about 36 s compiling shaders, so keep it out of tests.
 
 Keep logic out of these places so what remains untested is a thin shell, and
 say "UI unverified" when reporting.

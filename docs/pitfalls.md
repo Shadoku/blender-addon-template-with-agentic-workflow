@@ -184,13 +184,83 @@ drop-downs became menu sockets; probe both binaries rather than trusting memory.
 
 Guardrails: one small shim per change in `rig.py`
 (`set_transform_mode_matrix` checks `"Mode" in node.inputs` and falls back to
-`node.mode`; `set_eevee_engine` tries `BLENDER_EEVEE_NEXT`, then
-`BLENDER_EEVEE`), and the check is run on both ends of the supported range:
+`node.mode`; `set_eevee_engine` picks whichever EEVEE identifier the
+engine enum lists), and the check is run on both ends of the supported range:
 `python3 tools/check.py` for the pinned 5.2 and
 `BLENDER=~/.cache/blender/4.5.3/blender python3 tools/check.py` for 4.5 (CI
 runs the same matrix). `tests/blender/test_shear.py` evaluates the node tree,
 so a node silently left in Components mode fails a test instead of rendering
 an unsheared guide.
+
+## 16. Rendering headless (found while building the 0.2 guide passes)
+
+Probed on the 4.5.3 and 5.2.3 binaries in `~/.cache/blender/`.
+
+- **Workbench and EEVEE need libEGL, even with `-b`.** Without
+  `libEGL.so.1` Blender prints `Couldn't open libEGL.so.1` and *exits*: no
+  Python exception, no traceback, the whole pytest run just stops. Cycles on
+  CPU renders without it. Mesa provides EGL on a machine without a GPU
+  (`apt-get install libegl1 libgl1 libgles2 libglx-mesa0 libgl1-mesa-dri
+  libegl-mesa0`) and renders through llvmpipe.
+- **Use Workbench, not EEVEE, for tests and flat passes.** Under llvmpipe a
+  64x64 Workbench frame takes about 5 s; EEVEE spends about 36 s compiling
+  shaders first. Workbench with `display.shading.light = "FLAT"`,
+  `color_type = "MATERIAL"`, `display.render_aa = "OFF"`,
+  `render.filter_size = 0`, a transparent film and the Standard view
+  transform gives exact material colours (within 1/255) and no partially
+  transparent pixel at all.
+- **Harmless noise:** every headless Workbench render prints
+  `EGL Error (0x3009): EGL_BAD_MATCH ...` three times. `check.py`'s error
+  regex (`^Error: ` / `^ERROR `) does not match it, so it fails nothing;
+  do not chase it.
+- **`render.engine` enum items are incomplete.**
+  `RenderSettings.bl_rna.properties["engine"].enum_items` lists only EEVEE;
+  Cycles and Workbench register dynamically. Assigning `"CYCLES"` or
+  `"BLENDER_WORKBENCH"` works; looking them up in `enum_items` does not.
+  (EEVEE's own identifier differs between versions, see section 15.)
+- **`view_settings.look` names are not what `enum_items` says.** The static
+  `enum_items` list `NONE`, but the looks are built at runtime from the colour
+  management config for the current view transform, and the value assignment
+  accepts is `"None"`; `"NONE"` raises `TypeError` (4.5 and 5.2, under
+  Standard, AgX and Filmic). Set `view_transform` first, then the look, try
+  `"None"` and fall back to `"NONE"`; restore them in that order too
+  (`render.RenderSettingsGuard`). Same lesson as `engine`: for runtime enums,
+  probe assignment, not `enum_items`.
+- **Workbench's RANDOM colour is per object.** A Geometry Nodes rig that
+  realizes a whole collection is one object, so RANDOM paints everything one
+  colour. The ids pass therefore gives each source object's data a temporary,
+  uniquely coloured material, renders with MATERIAL colour and puts the
+  original slots back (`render._IdMaterials`). Pick those colours as whole
+  sRGB bytes converted to linear, and still merge colours one step apart
+  (`core.outline.merge_near_colors`): 4.5 renders some faces with +-1 noise.
+- **Reading pixels back exactly:** after `bpy.data.images.load(path)`, set
+  `image.colorspace_settings.name = "Non-Color"`; `pixels` are then the raw
+  bytes / 255, rows bottom-up. Write PNGs with our own encoder (`core/png.py`)
+  rather than through an Image datablock, so no colour management touches them.
+- **The compositor API changed in 5.0** (`scene.compositing_node_group`
+  instead of `scene.node_tree` / `use_nodes`). This add-on sidesteps it: all
+  outlines, grids and compositing happen in numpy on pixel arrays.
+- **Bounding Box ignores instances.** Geometry Nodes' Bounding Box node does
+  not measure instances, and Collection Info outputs nothing else; realize the
+  geometry first (the rig's node group realizes the source before measuring
+  it for Auto Seat).
+- **Path properties and `//`.** A `StringProperty(subtype="DIR_PATH")` whose
+  value starts with `//` prints `RuntimeWarning: ...: does not support blend
+  relative "//" prefix` on assignment unless it is declared with
+  `options={"PATH_SUPPORTS_BLEND_RELATIVE"}` (both 4.5 and 5.2). Resolve it
+  with `bpy.path.abspath` and refuse a still-relative result in an unsaved
+  file.
+
+The two other version differences the rig hits are already handled by shims
+in `rig.py`: Geometry Nodes modifier inputs (`mod[identifier]` on 4.5,
+`mod.properties.inputs.<identifier>.value` on 5.2; `set_modifier_input`,
+section 1 table) and Transform Geometry's matrix mode (section 15,
+`set_transform_mode_matrix`).
+
+Guardrails: `tests/blender/test_render.py` skips at module level when
+`ctypes.util.find_library("EGL")` is `None`, before anything renders; CI and
+the session hook install Mesa; `render.RenderSettingsGuard` restores every
+render setting it touches.
 
 ## Sources
 

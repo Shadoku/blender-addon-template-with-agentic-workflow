@@ -26,6 +26,11 @@ jobs:
       - name: Install Blender
         run: bash tools/install_blender.sh
 
+      # Workbench renders need libEGL even headless; without it Blender exits on the first
+      # render (tests/blender/test_render.py skips itself when EGL is missing).
+      - name: Install Mesa (headless GPU rendering)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libegl1 libgl1 libgles2 libglx-mesa0 libgl1-mesa-dri libegl-mesa0
+
       - name: Run checks (lint, unit, blender, package)
         run: BLENDER="$HOME/.cache/blender/$BLENDER_VERSION/blender" python3 tools/check.py --junit junit --keep-dist
 

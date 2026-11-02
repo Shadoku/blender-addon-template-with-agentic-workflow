@@ -2,7 +2,7 @@ schema_version = "1.0.0"
 
 # Unique identifier; must match this directory's name. Lowercase, underscores.
 id = "oblique_rig"
-version = "0.1.0"
+version = "0.2.0"
 name = "Oblique Rig"
 tagline = "Build a 2:1 oblique projection rig for pixel art guides"
 maintainer = "Shadoku <shadoku@gmail.com>"

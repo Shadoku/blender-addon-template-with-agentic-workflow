@@ -1,4 +1,5 @@
 import dataclasses
+import warnings
 
 import bpy
 import pytest
@@ -150,6 +151,17 @@ def test_subtypes(addon) -> None:
         assert rna[name].subtype == "COLOR"
         assert rna[name].array_length == 4
         assert (rna[name].hard_min, rna[name].hard_max) == pytest.approx((0.0, 1.0))
+
+
+def test_output_dir_accepts_blend_relative_paths(addon) -> None:
+    """Without PATH_SUPPORTS_BLEND_RELATIVE, assigning "//..." prints a RuntimeWarning."""
+    rna = addon.properties.OBLIQUE_RIG_Settings.bl_rna.properties
+    assert rna["output_dir"].is_path_supports_blend_relative
+    settings = addon.properties.get_settings(bpy.context)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        settings.output_dir = "//renders/"
+    assert settings.output_dir == "//renders/"
 
 
 @pytest.mark.parametrize(("name", "minimum"), MINIMUMS.items())

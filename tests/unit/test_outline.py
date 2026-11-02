@@ -181,3 +181,40 @@ def test_paint() -> None:
 def test_paint_accepts_float_colours() -> None:
     layer = outline.paint(single_pixel(3), (0.0, 0.5, 1.0, 1.0))
     assert layer[1, 1].tolist() == [0, 128, 255, 255]
+
+
+def test_merge_near_colors_snaps_to_the_most_frequent() -> None:
+    image = np.zeros((1, 6, 4), dtype=np.uint8)
+    image[0, :3] = (108, 144, 203, 255)
+    image[0, 3] = (108, 145, 203, 255)  # one step off: GPU rounding noise
+    image[0, 4] = (20, 30, 40, 255)
+    merged = outline.merge_near_colors(image)
+    assert merged.dtype == np.uint8
+    assert merged[0, :4].tolist() == [[108, 144, 203, 255]] * 4
+    assert merged[0, 4].tolist() == [20, 30, 40, 255]
+    assert merged[0, 5].tolist() == [0, 0, 0, 0], "transparent pixels are left alone"
+    assert image[0, 3].tolist() == [108, 145, 203, 255], "the input is not modified"
+
+
+def test_merge_near_colors_respects_the_tolerance() -> None:
+    image = np.zeros((1, 3, 4), dtype=np.uint8)
+    image[0, :2] = (100, 100, 100, 255)
+    image[0, 2] = (102, 100, 100, 255)
+    assert outline.merge_near_colors(image)[0, 2].tolist() == [102, 100, 100, 255], "two steps apart"
+    assert outline.merge_near_colors(image, tolerance=2)[0, 2].tolist() == [100, 100, 100, 255]
+    assert outline.merge_near_colors(image, tolerance=0).tolist() == image.tolist()
+
+
+def test_merge_near_colors_then_label_gives_one_label_per_material() -> None:
+    image = np.zeros((2, 4, 4), dtype=np.uint8)
+    image[:, :2] = (200, 50, 50, 255)
+    image[1, 1] = (201, 50, 49, 255)
+    image[:, 2:] = (50, 200, 50, 255)
+    image[0, 3] = (50, 199, 50, 255)
+    labels = outline.label_image(outline.merge_near_colors(image))
+    assert labels.tolist() == [[1, 1, 0, 0], [1, 1, 0, 0]]
+
+
+def test_merge_near_colors_of_an_empty_image() -> None:
+    image = np.zeros((3, 3, 4), dtype=np.uint8)
+    assert np.array_equal(outline.merge_near_colors(image), image)

@@ -1,7 +1,9 @@
 # Plan: Oblique Rig 0.2, reference-rendering features
 
-Status: in progress, 2026-11-02. Builds on `docs/PLAN-oblique-rig.md` (0.1:
-rig, camera, calibration, Add Selected, view toggle). The add-on produces
+Status: implemented, 2026-11-02 (version 0.2.0; `check.py` passes on 4.5.3
+and 5.2.3; section 7 lists the deviations). Builds on
+`docs/PLAN-oblique-rig.md` (0.1: rig, camera, calibration, Add Selected, view
+toggle). The add-on produces
 references to paint over, never final art; every feature below is judged by
 how much it improves that reference.
 
@@ -16,7 +18,7 @@ Features, in priority order:
 | D | Directions and turnarounds | Game sprites need 4 or 8 facings with identical framing. |
 | E | Guide overlays (floor grid, ground line, depth axis) | A ruler on every reference, pixel-exact once A is in. |
 | G | Presets | Common slopes and resolutions in one click. |
-| H | Depth-sort warning | Flags source objects whose sheared shapes overlap while their depth ranges interleave. |
+| H | Depth-sort warning | Flags source objects that interpenetrate in 3D (changed from the screen-rect criterion, see section 7). |
 
 ## 1. Verified facts (this session, Blender 4.5.3 and 5.2.3 binaries in `~/.cache/blender/`)
 
@@ -310,3 +312,42 @@ test that render settings are restored (engine, shading, filepath).
 Animation frame ranges, EEVEE/Cycles passes (normals, depth), importing the
 reference back into a paint program, per-object outline weights, anti-aliased
 "soft" outlines.
+
+## 7. Deviations from this plan
+
+What the implementation does differently, and why:
+
+- **Inner line width equals the weight.** The contract said "boundary pixels,
+  then dilate(weight - 1)", which makes weight 2 three pixels wide. Instead
+  weight N is an N-pixel line: odd weights grow the one-pixel boundary set by
+  `(N - 1) // 2` on both sides, even weights start from the pixels on both
+  sides of the boundary. Weight 1 is unchanged (the left/lower side).
+- **Fit covers every touched pixel.** `fit_frame` sizes each axis as
+  `ceil(max * ppu) - floor(min * ppu)` plus padding (the grid cells the
+  content touches), not `ceil(extent)`; the two agree for grid-aligned
+  bounds, and the frame edges always lie on the world pixel grid.
+- **The grid uses floor.** Each grid point is drawn in the pixel that contains
+  it (`floor`, with 1e-6 tolerance), not the nearest one, matching how the
+  renderer covers a pixel from its lower-left corner.
+- **The source is realized before seating.** Geometry Nodes' Bounding Box
+  ignores instances, so the node group is Collection Info -> Realize ->
+  Turn -> Seat -> Shear -> Realize rather than measuring the instances.
+- **Ids via temporary materials.** Workbench's RANDOM colour is per object,
+  and the rig is one realized object, so RANDOM gives one colour. The ids
+  pass assigns each source object's data a temporary material with a distinct
+  colour (whole sRGB bytes), renders with MATERIAL colour and restores the
+  original slots.
+- **Near-colour merge.** Workbench on 4.5 renders some faces with +-1 noise
+  per channel, which split one material into several labels.
+  `core.outline.merge_near_colors` snaps colours within 1 step to the most
+  frequent one before `label_image` (used for both inner-line modes).
+- **Overlap criterion changed to 3D interpenetration.** The screen-rect plus
+  depth-range test fired on every calibration build (the floor's depth range
+  contains the cubes and its rect covers theirs). `overlapping_pairs` now
+  takes `(name, (xmin, ymin, zmin), (xmax, ymax, zmax))` world bounding
+  boxes from `rig.source_boxes` (replacing `rig.source_rects`) and reports a
+  pair when the boxes overlap by more than 1e-9 on all three axes. Touching
+  (a cube on a floor) and one-behind-the-other do not count.
+- Smaller items: `output_dir` declares `PATH_SUPPORTS_BLEND_RELATIVE` (else
+  assigning `//guides/` warns); under the Standard view transform the look is
+  set as `"None"` although `enum_items` lists `NONE`.

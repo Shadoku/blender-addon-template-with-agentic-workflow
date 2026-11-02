@@ -9,6 +9,20 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 ROOT="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+
+# Mesa gives headless Blender the libEGL that Workbench renders need; without it the
+# render tests skip (and a render outside them makes Blender exit). Best effort only.
+MESA_PACKAGES="libegl1 libgl1 libgles2 libglx-mesa0 libgl1-mesa-dri libegl-mesa0"
+if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
+  # shellcheck disable=SC2086
+  if { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $MESA_PACKAGES; } >/dev/null 2>&1; then
+    echo "Mesa ready: render tests can run"
+  else
+    echo "Mesa install failed: render tests will skip"
+  fi
+else
+  echo "Mesa not installed (needs root and apt-get): render tests skip unless libEGL is present"
+fi
 BIN="$(bash "$ROOT/tools/install_blender.sh" | tail -n 1)"
 
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then

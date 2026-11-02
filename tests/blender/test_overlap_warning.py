@@ -1,4 +1,4 @@
-"""Build and Fit flag source objects whose sheared shapes overlap while their depth ranges interleave."""
+"""Build and Fit flag source objects that interpenetrate (their world bounding boxes overlap in 3D)."""
 
 import math
 
@@ -10,10 +10,10 @@ def _settings(addon):
     return addon.properties.get_settings(bpy.context)
 
 
-def test_interleaved_depth_is_flagged(addon, source_box) -> None:
+def test_interpenetrating_boxes_are_flagged(addon, source_box) -> None:
     bpy.ops.oblique_rig.build()
     source_box("Near", (-0.5, 0.0, 0.0), (0.5, 1.0, 1.0))
-    source_box("Far", (-0.5, 0.5, 0.0), (0.5, 1.5, 1.0))
+    source_box("Far", (-0.5, 0.5, 0.25), (0.5, 1.5, 1.25))
     assert bpy.ops.oblique_rig.build() == {"FINISHED"}
     warnings = _settings(addon).last_warnings
     assert warnings == addon.core.overlap.format_warnings([("Far", "Near")]), "collection order is by name"
@@ -28,15 +28,29 @@ def test_separated_objects_are_not_flagged(addon, source_box) -> None:
     assert _settings(addon).last_warnings == ""
 
 
-def test_calibration_cubes_are_not_paired(addon) -> None:
-    """The two cubes are 3 units apart in depth, so their order is unambiguous (the floor may still be paired)."""
+def test_one_behind_the_other_is_not_flagged(addon, source_box) -> None:
+    """Overlapping on screen but separate in depth: the shear keeps the order readable."""
+    bpy.ops.oblique_rig.build()
+    source_box("Front", (-0.5, 0.0, 0.0), (0.5, 1.0, 1.0))
+    source_box("Back", (-0.25, 1.5, 0.0), (0.75, 2.5, 1.0))
+    assert bpy.ops.oblique_rig.build() == {"FINISHED"}
+    assert _settings(addon).last_warnings == ""
+
+
+def test_cubes_standing_on_a_floor_are_not_flagged(addon, source_box) -> None:
+    bpy.ops.oblique_rig.build()
+    source_box("Floor", (-3.0, 0.0, 0.0), (3.0, 5.0, 0.0))
+    source_box("Crate", (-0.5, 1.0, 0.0), (0.5, 2.0, 1.0))
+    assert bpy.ops.oblique_rig.build() == {"FINISHED"}
+    assert _settings(addon).last_warnings == ""
+
+
+def test_calibration_build_has_no_warning(addon) -> None:
+    """The calibration cubes stand on the floor and are 3 units apart: nothing interpenetrates."""
     bpy.ops.oblique_rig.build()
     bpy.ops.oblique_rig.add_calibration()
-    bpy.ops.oblique_rig.build()
-    warnings = _settings(addon).last_warnings
-    o = addon.core.oblique
-    assert f"{o.CALIB_FRONT} / {o.CALIB_BACK}" not in warnings, "3 units apart in depth: unambiguous"
-    assert f"{o.CALIB_BACK} / {o.CALIB_FRONT}" not in warnings
+    assert bpy.ops.oblique_rig.build() == {"FINISHED"}
+    assert _settings(addon).last_warnings == ""
 
 
 def test_at_most_three_pairs(addon, source_box) -> None:
@@ -58,22 +72,26 @@ def test_fit_updates_warnings(addon, source_box) -> None:
     assert _settings(addon).last_warnings != ""
 
 
-def test_source_rects_follow_direction(addon, source_box) -> None:
-    """Turned a quarter, two boxes side by side in x become one behind the other in depth."""
-    o = addon.core.oblique
+def test_source_boxes_are_world_bounds(addon, source_box) -> None:
+    """Evaluated world-space boxes: object transforms count, empties are skipped, sorted by name."""
     bpy.ops.oblique_rig.build()
-    source_box("A", (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
-    source_box("B", (3.0, 0.0, 0.0), (4.0, 1.0, 1.0))
-    params = o.RigParams(direction=math.radians(90))
-    rects = {name: (rect, depth) for name, rect, depth in addon.rig.source_rects(bpy.context.scene, params)}
-    assert set(rects) == {"A", "B"}
-    # Turned: A spans y 0..1, B y 3..4 (auto seat puts the front edge on y = 0).
-    assert rects["A"][1] == pytest.approx((0.0, 1.0), abs=1e-5)
-    assert rects["B"][1] == pytest.approx((3.0, 4.0), abs=1e-5)
-    # Without turning both share the depth range 0..1 and sit side by side on screen.
-    rects = {
-        name: (rect, depth) for name, rect, depth in addon.rig.source_rects(bpy.context.scene, o.RigParams())
-    }
-    assert rects["A"][1] == pytest.approx((0.0, 1.0), abs=1e-5)
-    assert rects["B"][1] == pytest.approx((0.0, 1.0), abs=1e-5)
-    assert rects["B"][0][0] - rects["A"][0][0] == pytest.approx(3 * 16, abs=1e-4), "3 units apart at 16 px"
+    b = source_box("B", (0.0, 0.0, 0.0), (1.0, 2.0, 1.0))
+    b.location = (3.0, 0.0, 0.0)
+    b.rotation_euler = (0.0, 0.0, math.radians(90))
+    source_box("A", (-1.0, 0.0, 0.0), (1.0, 1.0, 0.5))
+    empty = bpy.data.objects.new("Empty", None)
+    bpy.data.collections[addon.core.oblique.SOURCE_COLLECTION].objects.link(empty)
+    bpy.context.view_layer.update()
+
+    boxes = addon.rig.source_boxes(bpy.context.scene)
+    assert [name for name, _, _ in boxes] == ["A", "B"]
+    (_, lo_a, hi_a), (_, lo_b, hi_b) = boxes
+    assert lo_a == pytest.approx((-1.0, 0.0, 0.0), abs=1e-6)
+    assert hi_a == pytest.approx((1.0, 1.0, 0.5), abs=1e-6)
+    # Turned a quarter about Z at x = 3: x spans 3 - 2 .. 3, y 0 .. 1.
+    assert lo_b == pytest.approx((1.0, 0.0, 0.0), abs=1e-6)
+    assert hi_b == pytest.approx((3.0, 1.0, 1.0), abs=1e-6)
+
+
+def test_source_boxes_without_source_collection(addon) -> None:
+    assert addon.rig.source_boxes(bpy.context.scene) == []

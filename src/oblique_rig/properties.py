@@ -163,6 +163,7 @@ class OBLIQUE_RIG_Settings(PropertyGroup):
         description="Folder the guide renders are written to (// is relative to the .blend file)",
         default="//guides/",
         subtype="DIR_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
     )
     output_name: StringProperty(
         name="File Name",
@@ -289,7 +290,7 @@ class OBLIQUE_RIG_Settings(PropertyGroup):
     )
     last_warnings: StringProperty(
         name="Depth Warnings",
-        description="Source objects whose sheared shapes overlap while their depth ranges interleave",
+        description="Source objects whose bounding boxes interpenetrate, so their depth order is unclear",
         default="",
     )
 
