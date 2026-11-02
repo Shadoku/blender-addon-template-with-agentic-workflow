@@ -118,3 +118,33 @@ def screen_offset_per_depth_unit(
     """
     a, b = shear_coefficients(slope_run, slope_rise, depth_scale)
     return a * pixels_per_unit, b * pixels_per_unit
+
+
+def bounds(
+    points: "list[tuple[float, float, float]]",
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Axis-aligned (min, max) corners of a set of points.
+
+    Raises:
+        ValueError: if ``points`` is empty.
+    """
+    if not points:
+        raise ValueError("bounds() needs at least one point")
+    lo = tuple(min(p[i] for p in points) for i in range(3))
+    hi = tuple(max(p[i] for p in points) for i in range(3))
+    return lo, hi  # type: ignore[return-value]
+
+
+def placement_offset(
+    bbox_min: tuple[float, float, float], origin_z: float, ground_by_bottom: bool = False
+) -> tuple[float, float, float]:
+    """Translation that seats an object in the rig: front edge at y = 0, origin at z = 0.
+
+    ``bbox_min`` is the world-space minimum corner of the object's bounding box
+    and ``origin_z`` the world z of its origin. The front edge (smallest y) goes
+    to the y = 0 reference plane, so positive depth only ever shears the object
+    up and right. Z is chosen so the origin lands on the floor, or with
+    ``ground_by_bottom`` so the lowest point does. X is never changed.
+    """
+    dz = -bbox_min[2] if ground_by_bottom else -origin_z
+    return 0.0, -bbox_min[1], dz

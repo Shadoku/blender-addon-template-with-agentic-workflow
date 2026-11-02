@@ -10,7 +10,12 @@ import bpy
 from bpy.types import Panel
 
 from .core.oblique import RIG_NAME, SOURCE_COLLECTION
-from .operators import OBLIQUE_RIG_OT_add_calibration, OBLIQUE_RIG_OT_build, OBLIQUE_RIG_OT_remove
+from .operators import (
+    OBLIQUE_RIG_OT_add_calibration,
+    OBLIQUE_RIG_OT_add_selected,
+    OBLIQUE_RIG_OT_build,
+    OBLIQUE_RIG_OT_remove,
+)
 from .properties import get_settings
 
 
@@ -42,8 +47,13 @@ class OBLIQUE_RIG_PT_sidebar(Panel):
 
         col = layout.column(align=True)
         col.operator(OBLIQUE_RIG_OT_build.bl_idname, icon="MOD_LATTICE")
+        col.operator(OBLIQUE_RIG_OT_add_selected.bl_idname, icon="IMPORT")
         col.operator(OBLIQUE_RIG_OT_add_calibration.bl_idname, icon="MESH_CUBE")
         col.operator(OBLIQUE_RIG_OT_remove.bl_idname, icon="TRASH")
+
+        row = layout.row(align=True)
+        row.use_property_split = False
+        row.prop(settings, "view_mode", expand=True)
 
         if bpy.data.objects.get(RIG_NAME) is not None:
             layout.label(text=f"Rig ready; assets go in '{SOURCE_COLLECTION}'", icon="CHECKMARK")

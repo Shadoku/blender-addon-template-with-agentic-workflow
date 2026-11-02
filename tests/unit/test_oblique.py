@@ -132,3 +132,25 @@ def test_screen_offset_per_depth_unit() -> None:
 def test_screen_offset_scales_with_depth() -> None:
     dx, dy = oblique.screen_offset_per_depth_unit(2.0, 1.0, 0.5, 16)
     assert (dx, dy) == pytest.approx((16 / SQRT5, 8 / SQRT5))
+
+
+def test_bounds_of_points() -> None:
+    lo, hi = oblique.bounds([(1.0, -2.0, 3.0), (-1.0, 4.0, 0.5), (0.0, 0.0, 9.0)])
+    assert lo == pytest.approx((-1.0, -2.0, 0.5))
+    assert hi == pytest.approx((1.0, 4.0, 9.0))
+
+
+def test_bounds_rejects_empty() -> None:
+    with pytest.raises(ValueError):
+        oblique.bounds([])
+
+
+def test_placement_offset_puts_front_edge_at_zero_and_origin_on_floor() -> None:
+    # Object spans y -2..1 and z 1..4, origin at z = 2.5: pull y forward by 2, drop origin by 2.5.
+    offset = oblique.placement_offset(bbox_min=(5.0, -2.0, 1.0), origin_z=2.5)
+    assert offset == pytest.approx((0.0, 2.0, -2.5))
+
+
+def test_placement_offset_can_ground_by_bottom() -> None:
+    offset = oblique.placement_offset(bbox_min=(5.0, 3.0, -1.5), origin_z=0.0, ground_by_bottom=True)
+    assert offset == pytest.approx((0.0, -3.0, 1.5))

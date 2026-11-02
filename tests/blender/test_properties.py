@@ -9,6 +9,7 @@ DEFAULTS = {
     "slope_rise": 1.0,
     "depth_scale": 0.6,
     "camera_height_fraction": 0.35,
+    "view_mode": "SHEARED",
 }
 
 MINIMUMS = {
@@ -35,7 +36,8 @@ def test_declared_properties(addon) -> None:
 @pytest.mark.parametrize(("name", "value"), DEFAULTS.items())
 def test_defaults(addon, name, value) -> None:
     settings = addon.properties.get_settings(bpy.context)
-    assert getattr(settings, name) == pytest.approx(value)
+    got = getattr(settings, name)
+    assert got == value if isinstance(value, str) else got == pytest.approx(value)
 
 
 def test_types(addon) -> None:
@@ -45,6 +47,8 @@ def test_types(addon) -> None:
     for name in ("slope_run", "slope_rise", "depth_scale", "camera_height_fraction"):
         assert rna[name].type == "FLOAT"
     assert rna["depth_scale"].soft_max == pytest.approx(2.0)
+    assert rna["view_mode"].type == "ENUM"
+    assert {i.identifier for i in rna["view_mode"].enum_items} == {"SOURCE", "SHEARED"}
 
 
 @pytest.mark.parametrize(("name", "minimum"), MINIMUMS.items())

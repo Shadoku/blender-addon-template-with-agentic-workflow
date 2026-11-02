@@ -197,7 +197,25 @@ Blender (`tests/blender/`), via `check.py`:
    Blender versions, fix anything left.
 5. Commit on `claude/trusting-hawking-4d4ihj`, push.
 
-## 7. Out of scope (for now)
+## 7. Follow-up changes (2026-11-02)
+
+- **Add Selected to Rig** (`oblique_rig.add_selected`): moves the selected
+  objects into the source collection and seats each one with its evaluated
+  world bounding-box front edge at y = 0 and its origin at z = 0 (option
+  *Bottom to Floor* uses the lowest point instead). Rig-owned objects are
+  skipped; children of objects being added are only relinked. Maths in
+  `core.oblique.bounds` / `placement_offset`.
+- **Calibration layout** starts at y = 0 (front cube y 0..1, back cube 3..4,
+  floor 0..5). The earlier layout extended to y = -0.5, and the shear maps
+  negative depth to negative z, so the sheared copies dipped below the floor
+  line. `test_shear.py::test_nothing_shears_below_the_floor` guards this.
+- **View toggle** (`view_mode`: Source / Sheared, default Sheared): per view
+  layer, hides the source collection with the eye toggle and the rig object
+  with `hide_set`, or the reverse. Eye hiding keeps the source in the depsgraph
+  so Collection Info still feeds the rig (tested). Build applies the current
+  mode.
+
+## 8. Out of scope (for now)
 
 Rendering the guide to disk from the panel, a one-click "import image as
 reference" step, presets for other slopes (1:1, 3:2), per-object depth sorting

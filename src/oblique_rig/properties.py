@@ -9,11 +9,23 @@ working in Blender 5.0.
 """
 
 import bpy
-from bpy.props import FloatProperty, IntProperty, PointerProperty
+from bpy.props import EnumProperty, FloatProperty, IntProperty, PointerProperty
 from bpy.types import PropertyGroup
+
+from . import rig
+
+VIEW_MODE_ITEMS = (
+    ("SOURCE", "Source", "Show the original objects in the source collection; hide the sheared rig"),
+    ("SHEARED", "Sheared", "Show the sheared rig output; hide the source objects"),
+)
 
 # Attribute name on bpy.types.Scene. Keep it equal to the add-on id so it is unique.
 SCENE_ATTR = "oblique_rig"
+
+
+def _on_view_mode_update(self: "OBLIQUE_RIG_Settings", context: bpy.types.Context) -> None:
+    scene = self.id_data if isinstance(self.id_data, bpy.types.Scene) else context.scene
+    rig.apply_view_mode(scene, self.view_mode)
 
 
 class OBLIQUE_RIG_Settings(PropertyGroup):
@@ -68,6 +80,13 @@ class OBLIQUE_RIG_Settings(PropertyGroup):
         soft_min=0.0,
         soft_max=1.0,
         subtype="FACTOR",
+    )
+    view_mode: EnumProperty(
+        name="View",
+        description="Which side of the rig is visible in the viewport",
+        items=VIEW_MODE_ITEMS,
+        default="SHEARED",
+        update=_on_view_mode_update,
     )
 
 

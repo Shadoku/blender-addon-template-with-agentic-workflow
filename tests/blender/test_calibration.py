@@ -24,11 +24,11 @@ def test_geometry(addon) -> None:
     floor = bpy.data.objects[o.CALIB_FLOOR]
     assert (len(front.data.vertices), len(front.data.polygons)) == (8, 6)
     assert (len(floor.data.vertices), len(floor.data.polygons)) == (4, 1)
-    assert tuple(front.location) == pytest.approx((0.0, 0.0, 0.5))
-    assert tuple(back.location) == pytest.approx((0.0, 3.0, 0.5))
+    assert tuple(front.location) == pytest.approx((0.0, 0.5, 0.5)), "front edge at y = 0"
+    assert tuple(back.location) == pytest.approx((0.0, 3.5, 0.5)), "3 units behind the front cube"
     assert tuple(front.dimensions) == pytest.approx((1.0, 1.0, 1.0))
     assert tuple(floor.dimensions) == pytest.approx((6.0, 5.0, 0.0))
-    assert tuple(floor.location) == pytest.approx((0.0, 2.0, 0.0))
+    assert tuple(floor.location) == pytest.approx((0.0, 2.5, 0.0)), "floor spans y 0..5"
 
 
 def test_idempotent(addon) -> None:

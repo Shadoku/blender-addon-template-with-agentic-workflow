@@ -114,7 +114,7 @@ src/<id>/                   the extension package (this is what gets zipped)
   __init__.py               register()/unregister(): ordered CLASSES tuple only
   core/                     pure Python, no bpy: shear maths (oblique.py), mesh primitives (primitives.py)
   rig.py                    Blender-facing builders: node group, camera, render settings
-  operators.py              thin operators: build, add_calibration, remove
+  operators.py              thin operators: build, add_selected, add_calibration, remove
   properties.py             PropertyGroup + the one PointerProperty on Scene
   ui.py                     panels/menus, draw() only
   preferences.py            AddonPreferences keyed by __package__

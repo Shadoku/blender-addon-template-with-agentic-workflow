@@ -11,6 +11,7 @@ SETTINGS = {
     "slope_rise",
     "depth_scale",
     "camera_height_fraction",
+    "view_mode",
 }
 
 
@@ -28,6 +29,7 @@ def test_sidebar_panel_draws_every_setting_and_operator(addon, recording_layout)
     operators_drawn = {call[1][0] for call in calls if call[0] == "operator"}
     assert operators_drawn == {
         addon.operators.OBLIQUE_RIG_OT_build.bl_idname,
+        addon.operators.OBLIQUE_RIG_OT_add_selected.bl_idname,
         addon.operators.OBLIQUE_RIG_OT_add_calibration.bl_idname,
         addon.operators.OBLIQUE_RIG_OT_remove.bl_idname,
     }

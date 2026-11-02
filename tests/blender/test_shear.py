@@ -34,13 +34,13 @@ def test_back_cube_is_shifted_by_depth(addon) -> None:
     verts = _evaluated_vertices(rig)
     assert len(verts) == 8 + 8 + 4, "two cubes and a floor, realized into one mesh"
 
-    back = [v for v in verts if 2.5 - 1e-4 <= v[1] <= 3.5 + 1e-4]
-    front = [v for v in verts if -0.5 - 1e-4 <= v[1] <= 0.5 + 1e-4 and -1.0 <= v[0] <= 1.0]
+    back = [v for v in verts if 3.0 - 1e-4 <= v[1] <= 4.0 + 1e-4]
+    front = [v for v in verts if -1e-4 <= v[1] <= 1.0 + 1e-4 and -1.5 <= v[0] <= 1.5]  # floor is at |x| = 3
     assert len(back) == 8 and len(front) == 8
 
     fx, fy, fz = _centroid(front)
     bx, by, bz = _centroid(back)
-    assert (fx, fy, fz) == pytest.approx((0.0, 0.0, 0.5), abs=1e-5)
+    assert (fx, fy, fz) == pytest.approx(o.shear_point((0.0, 0.5, 0.5), a, b), abs=1e-5)
     assert by - fy == pytest.approx(3.0, abs=1e-5), "depth (y) is not sheared"
     assert bx - fx == pytest.approx(3 * a, abs=1e-5)
     assert bz - fz == pytest.approx(3 * b, abs=1e-5)
@@ -73,21 +73,27 @@ def test_shear_follows_settings(addon) -> None:
     rig = _build_with_calibration(addon)
     a, b = o.shear_coefficients(1.0, 1.0, 1.0)
 
-    back = [v for v in _evaluated_vertices(rig) if 2.5 - 1e-4 <= v[1] <= 3.5 + 1e-4]
-    bx, _, bz = _centroid(back)
-    assert bx == pytest.approx(3 * a, abs=1e-5)
-    assert bz == pytest.approx(0.5 + 3 * b, abs=1e-5)
+    back = [v for v in _evaluated_vertices(rig) if 3.0 - 1e-4 <= v[1] <= 4.0 + 1e-4]
+    assert _centroid(back) == pytest.approx(o.shear_point((0.0, 3.5, 0.5), a, b), abs=1e-5)
 
 
 def test_zero_depth_is_identity(addon) -> None:
     settings = addon.properties.get_settings(bpy.context)
     settings.depth_scale = 0.0
     rig = _build_with_calibration(addon)
-    back = [v for v in _evaluated_vertices(rig) if 2.5 - 1e-4 <= v[1] <= 3.5 + 1e-4]
-    assert _centroid(back) == pytest.approx((0.0, 3.0, 0.5), abs=1e-5)
+    back = [v for v in _evaluated_vertices(rig) if 3.0 - 1e-4 <= v[1] <= 4.0 + 1e-4]
+    assert _centroid(back) == pytest.approx((0.0, 3.5, 0.5), abs=1e-5)
 
 
 def test_source_is_hidden_from_render(addon) -> None:
     o = addon.core.oblique
     _build_with_calibration(addon)
     assert bpy.data.collections[o.SOURCE_COLLECTION].hide_render is True
+
+
+def test_nothing_shears_below_the_floor(addon) -> None:
+    """Calibration geometry starts at y = 0, so positive depth only ever moves it up and right."""
+    rig = _build_with_calibration(addon)
+    verts = _evaluated_vertices(rig)
+    assert min(v[1] for v in verts) == pytest.approx(0.0, abs=1e-6)
+    assert min(v[2] for v in verts) >= -1e-6

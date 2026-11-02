@@ -55,6 +55,7 @@ class OBLIQUE_RIG_OT_build(Operator):
             slope_rise=s.slope_rise,
             depth_scale=s.depth_scale,
             camera_height_fraction=s.camera_height_fraction,
+            view_mode=s.view_mode,
         )
         if get_prefs(context).report_results:
             self.report(
@@ -62,6 +63,38 @@ class OBLIQUE_RIG_OT_build(Operator):
                 f"Oblique rig ready: put assets in '{oblique.SOURCE_COLLECTION}'; "
                 f"one unit of depth moves {dx:.2f} px right, {dy:.2f} px up",
             )
+        return {"FINISHED"}
+
+
+class OBLIQUE_RIG_OT_add_selected(Operator):
+    bl_idname = "oblique_rig.add_selected"
+    bl_label = "Add Selected to Rig"
+    bl_description = (
+        "Move the selected objects into the source collection and place each with its "
+        "front edge at y = 0 and its origin at z = 0"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    ground_by_bottom: BoolProperty(
+        name="Bottom to Floor",
+        description="Put the object's lowest point at z = 0 instead of its origin",
+        default=False,
+    )
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        if rig.eligible_for_rig(context.selected_objects):
+            return True
+        cls.poll_message_set("Select the objects to add (the rig's own objects do not count)")
+        return False
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        depsgraph = context.evaluated_depsgraph_get()
+        added = rig.add_objects_to_rig(
+            context.scene, list(context.selected_objects), depsgraph, self.ground_by_bottom
+        )
+        if get_prefs(context).report_results:
+            self.report({"INFO"}, f"Added to '{oblique.SOURCE_COLLECTION}': {', '.join(added)}")
         return {"FINISHED"}
 
 
@@ -105,6 +138,7 @@ class OBLIQUE_RIG_OT_remove(Operator):
 
 CLASSES: tuple[type, ...] = (
     OBLIQUE_RIG_OT_build,
+    OBLIQUE_RIG_OT_add_selected,
     OBLIQUE_RIG_OT_add_calibration,
     OBLIQUE_RIG_OT_remove,
 )

@@ -16,9 +16,11 @@ API differences between Blender 4.5 LTS and 5.x handled here:
 """
 
 import math
+from collections.abc import Iterable
 from typing import Any
 
 import bpy
+from mathutils import Vector
 
 from .core import oblique, primitives
 from .core.oblique import (
@@ -34,12 +36,17 @@ from .core.oblique import (
 )
 
 # (name, location, builder) for the calibration objects: two unit cubes 3 units
-# apart in depth and a 6x5 floor under them.
+# apart in depth and a 6x5 floor under them. Every front edge sits at y = 0, the
+# rig's reference plane, so the shear (which moves +Y geometry up and right)
+# never pushes anything below the floor.
 CALIBRATION = (
-    (CALIB_FRONT, (0.0, 0.0, 0.5), lambda: primitives.cube(1.0)),
-    (CALIB_BACK, (0.0, 3.0, 0.5), lambda: primitives.cube(1.0)),
-    (CALIB_FLOOR, (0.0, 2.0, 0.0), lambda: primitives.plane(6.0, 5.0)),
+    (CALIB_FRONT, (0.0, 0.5, 0.5), lambda: primitives.cube(1.0)),
+    (CALIB_BACK, (0.0, 3.5, 0.5), lambda: primitives.cube(1.0)),
+    (CALIB_FLOOR, (0.0, 2.5, 0.0), lambda: primitives.plane(6.0, 5.0)),
 )
+
+RIG_OWNED = frozenset({RIG_NAME, CAMERA_NAME, SUN_NAME})
+VIEW_MODES = ("SOURCE", "SHEARED")
 
 
 # --------------------------------------------------------------------------- version shims
@@ -307,6 +314,7 @@ def build(
     slope_rise: float,
     depth_scale: float,
     camera_height_fraction: float,
+    view_mode: str = "SHEARED",
 ) -> bpy.types.Object:
     """Create or update every part of the rig; return the rig object."""
     source = get_or_create_collection(scene)
@@ -315,7 +323,98 @@ def build(
     build_camera(scene, resolution_x, resolution_y, pixels_per_unit, camera_height_fraction)
     setup_render(scene, resolution_x, resolution_y)
     build_light(scene)
+    apply_view_mode(scene, view_mode)
     return rig
+
+
+# --------------------------------------------------------------------------- viewport toggle
+
+
+def _find_layer_collection(
+    layer_collection: bpy.types.LayerCollection, name: str
+) -> bpy.types.LayerCollection | None:
+    if layer_collection.collection.name == name:
+        return layer_collection
+    for child in layer_collection.children:
+        found = _find_layer_collection(child, name)
+        if found is not None:
+            return found
+    return None
+
+
+def apply_view_mode(scene: bpy.types.Scene, view_mode: str) -> None:
+    """Show either the source objects or the sheared rig in every view layer, never both.
+
+    Uses the per-view-layer eye toggles (``LayerCollection.hide_viewport`` and
+    ``Object.hide_set``) rather than the global "disable in viewports" flags:
+    eye-hidden objects stay in the depsgraph, so Collection Info keeps feeding
+    the rig while the originals are out of sight. Rendering is unaffected; the
+    source collection always has ``hide_render`` set.
+    """
+    if view_mode not in VIEW_MODES:
+        raise ValueError(f"view_mode must be one of {VIEW_MODES}, got {view_mode!r}")
+    show_sheared = view_mode == "SHEARED"
+    source = bpy.data.collections.get(SOURCE_COLLECTION)
+    rig = bpy.data.objects.get(RIG_NAME)
+    for view_layer in scene.view_layers:
+        if source is not None:
+            layer_coll = _find_layer_collection(view_layer.layer_collection, source.name)
+            if layer_coll is not None:
+                layer_coll.hide_viewport = show_sheared
+        if rig is not None and rig.name in view_layer.objects:
+            rig.hide_set(not show_sheared, view_layer=view_layer)
+
+
+# --------------------------------------------------------------------------- adding assets
+
+
+def eligible_for_rig(objects: Iterable[bpy.types.Object]) -> list[bpy.types.Object]:
+    """The objects that may be added to the rig: anything but the rig's own objects."""
+    return [ob for ob in objects if ob.name not in RIG_OWNED]
+
+
+def _move_to_collection(ob: bpy.types.Object, target: bpy.types.Collection) -> None:
+    for coll in list(ob.users_collection):
+        if coll != target:
+            coll.objects.unlink(ob)
+    if ob.name not in target.objects:
+        target.objects.link(ob)
+
+
+def add_objects_to_rig(
+    scene: bpy.types.Scene,
+    objects: list[bpy.types.Object],
+    depsgraph: bpy.types.Depsgraph,
+    ground_by_bottom: bool = False,
+) -> list[str]:
+    """Move ``objects`` into the source collection and seat each at the reference plane.
+
+    Each object's evaluated world bounding box decides the move: its front edge
+    goes to y = 0 and its origin (or lowest point, with ``ground_by_bottom``) to
+    z = 0; x is kept. Objects whose parent is also being added are only
+    relinked, since the parent carries them. Returns the names processed.
+    """
+    source = get_or_create_collection(scene)
+    objects = eligible_for_rig(objects)
+    moving = set(ob.name for ob in objects)
+    offsets: dict[str, Vector] = {}
+    for ob in objects:
+        if ob.parent is not None and ob.parent.name in moving:
+            continue
+        corners = [tuple(ob.matrix_world @ Vector(c)) for c in ob.evaluated_get(depsgraph).bound_box]
+        lo, _ = oblique.bounds(corners)
+        offsets[ob.name] = Vector(
+            oblique.placement_offset(lo, ob.matrix_world.translation.z, ground_by_bottom)
+        )
+
+    for ob in objects:
+        offset = offsets.get(ob.name)
+        if offset is not None:
+            matrix = ob.matrix_world.copy()
+            matrix.translation += offset
+            ob.matrix_world = matrix
+        _move_to_collection(ob, source)
+    return [ob.name for ob in objects]
 
 
 def add_calibration_objects(scene: bpy.types.Scene) -> list[str]:

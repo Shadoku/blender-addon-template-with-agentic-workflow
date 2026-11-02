@@ -40,6 +40,7 @@ def test_expected_classes(addon) -> None:
         "OBLIQUE_RIG_Preferences",
         "OBLIQUE_RIG_Settings",
         "OBLIQUE_RIG_OT_build",
+        "OBLIQUE_RIG_OT_add_selected",
         "OBLIQUE_RIG_OT_add_calibration",
         "OBLIQUE_RIG_OT_remove",
         "OBLIQUE_RIG_PT_sidebar",

@@ -40,10 +40,15 @@ untouched, so depth sorting and occlusion stay correct.
 - **`Oblique Sun`**: a sun lamp so shapes read in the render.
 - **Flat render settings**: EEVEE with one sample, no pixel filter, transparent
   film, RGBA output, Standard view transform, resolution from the settings.
-- **Calibration objects** (optional): a 1-unit cube at y=0, a second one 3
-  units deep at y=3, and a 6x5 floor plane, all in the source collection. The
-  back cube should sit up and to the right of the front one along the chosen
-  slope.
+- **Calibration objects** (optional): a 1-unit cube with its front face on
+  y=0, a second one 3 units deeper, and a 6x5 floor plane starting at y=0, all
+  in the source collection. The back cube should sit up and to the right of
+  the front one along the chosen slope.
+
+The plane y=0 is the rig's reference: geometry on it is drawn unchanged, and
+everything behind it (positive Y) is pushed up and to the right. Keep the front
+of your assets on y=0 and their base on z=0 and nothing ends up below the
+floor line; **Add Selected to Rig** does that placement for you.
 
 ## Install
 
@@ -57,8 +62,14 @@ untouched, so depth sorting and occlusion stay correct.
 1. In the 3D View press N and open the **Oblique Rig** tab.
 2. Adjust the settings (below) and press **Build Rig**.
 3. Press **Add Calibration Objects** to check the slope, if you like.
-4. Put your assets into `Oblique_Source`, or link them into it.
-5. Press Numpad 0 to look through `Oblique Camera`; render with F12.
+4. Select your assets and press **Add Selected to Rig**. Each one is moved
+   into `Oblique_Source` with its front edge on y=0 and its origin on z=0 (the
+   redo panel offers *Bottom to Floor* to use the lowest point instead). You can
+   also drop or link objects into the collection by hand.
+5. Use the **Source / Sheared** toggle to switch the viewport between the
+   original objects and the sheared result; only one of them is visible at a
+   time. Renders always show the sheared result.
+6. Press Numpad 0 to look through `Oblique Camera`; render with F12.
 
 **Build Rig** is safe to press again: it updates the existing rig, camera,
 lamp and render settings from the panel and never duplicates them. The shear
